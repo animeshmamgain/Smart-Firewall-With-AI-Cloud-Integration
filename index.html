@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Smart Firewall — AI & Cloud Integration</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --navy:  #050d18;
+    --panel: #0a1628;
+    --card:  #0f1e35;
+    --border:#1a3a5c;
+    --cyan:  #00c8e0;
+    --cyan2: #00e5cc;
+    --text:  #c8daf0;
+    --dim:   #5a7a9a;
+    --danger:#ff4060;
+    --ok:    #00d68f;
+    --warn:  #ffaa00;
+    --mono:  'Share Tech Mono', monospace;
+    --head:  'Rajdhani', sans-serif;
+    --body:  'Inter', sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{background:var(--navy);color:var(--text);font-family:var(--body);font-size:15px;line-height:1.7;overflow-x:hidden;}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,200,224,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,200,224,.025) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0;}
+  .orb{position:fixed;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(0,200,224,.055) 0%,transparent 70%);top:-280px;right:-200px;pointer-events:none;z-index:0;animation:pulse 9s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:.6;}50%{transform:scale(1.12);opacity:1;}}
+
+  /* NAV */
+  nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(5,13,24,.9);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 2.5rem;height:58px;}
+  .nav-brand{font-family:var(--mono);font-size:13px;color:var(--cyan);letter-spacing:2px;}
+  .nav-links{display:flex;gap:2rem;list-style:none;}
+  .nav-links a{font-family:var(--head);font-size:13px;font-weight:600;letter-spacing:1.5px;color:var(--dim);text-decoration:none;text-transform:uppercase;transition:color .2s;}
+  .nav-links a:hover{color:var(--cyan);}
+
+  /* LAYOUT */
+  section{position:relative;z-index:1;}
+  .container{max-width:1080px;margin:0 auto;padding:0 2rem;}
+  .section-wrap{padding:5rem 0;}
+  .alt-bg{background:rgba(10,22,40,.55);}
+  .section-label{font-family:var(--mono);font-size:11px;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;margin-bottom:.4rem;}
+  .section-title{font-family:var(--head);font-size:clamp(1.6rem,3vw,2.3rem);font-weight:700;color:var(--text);margin-bottom:.8rem;}
+  .section-rule{width:48px;height:2px;background:linear-gradient(90deg,var(--cyan),transparent);margin-bottom:2.5rem;}
+  .section-intro{max-width:680px;color:var(--dim);font-size:15px;line-height:1.8;margin-bottom:2.5rem;}
+
+  /* HERO */
+  .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6rem 2rem 0;}
+  .hero-badge{font-family:var(--mono);font-size:11px;letter-spacing:3px;color:var(--cyan);border:1px solid var(--border);padding:6px 18px;border-radius:20px;margin-bottom:2rem;background:rgba(0,200,224,.05);animation:fadeUp .5s ease both;}
+  .hero h1{font-family:var(--head);font-size:clamp(2.6rem,6vw,5.2rem);font-weight:700;line-height:1.08;margin-bottom:.4rem;animation:fadeUp .5s .1s ease both;}
+  .hero h1 span{background:linear-gradient(90deg,var(--cyan),var(--cyan2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+  .hero-sub{font-family:var(--head);font-size:clamp(.9rem,2vw,1.2rem);font-weight:500;color:var(--dim);letter-spacing:3px;text-transform:uppercase;margin-bottom:1.4rem;animation:fadeUp .5s .2s ease both;}
+  .hero-desc{max-width:620px;color:var(--dim);font-size:15px;line-height:1.8;margin-bottom:2.5rem;animation:fadeUp .5s .3s ease both;}
+  .hero-btns{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;animation:fadeUp .5s .4s ease both;}
+  .btn{font-family:var(--head);font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;text-decoration:none;padding:12px 28px;border-radius:4px;transition:all .2s;display:inline-flex;align-items:center;gap:8px;}
+  .btn-primary{background:var(--cyan);color:var(--navy);border:1px solid var(--cyan);}
+  .btn-primary:hover{background:var(--cyan2);border-color:var(--cyan2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,200,224,.28);}
+  .btn-ghost{background:transparent;color:var(--cyan);border:1px solid var(--border);}
+  .btn-ghost:hover{border-color:var(--cyan);background:rgba(0,200,224,.05);transform:translateY(-2px);}
+
+  /* STATS */
+  .stats{display:flex;justify-content:center;flex-wrap:wrap;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--panel);margin-top:3rem;animation:fadeUp .5s .5s ease both;}
+  .stat{flex:1;min-width:150px;padding:1.8rem 1.5rem;text-align:center;border-right:1px solid var(--border);}
+  .stat:last-child{border-right:none;}
+  .stat-value{font-family:var(--mono);font-size:2rem;color:var(--cyan);display:block;line-height:1;margin-bottom:6px;}
+  .stat-label{font-family:var(--head);font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--dim);}
+
+  /* OVERVIEW */
+  .overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:2rem;}
+  .overview-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1.8rem;}
+  .overview-card h3{font-family:var(--head);font-size:1.05rem;font-weight:700;color:var(--cyan);margin-bottom:.8rem;letter-spacing:1px;text-transform:uppercase;}
+  .overview-card p{font-size:14px;color:var(--dim);line-height:1.75;}
+
+  /* ARCH */
+  .arch-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;}
+  .arch-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2rem 1.5rem;position:relative;overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s;}
+  .arch-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+  .arch-card.ai::before{background:linear-gradient(90deg,var(--cyan),var(--cyan2));}
+  .arch-card.agent::before{background:linear-gradient(90deg,#5b8dee,#7b5ea7);}
+  .arch-card.cloud::before{background:linear-gradient(90deg,var(--ok),#00b8d4);}
+  .arch-card:hover{transform:translateY(-4px);border-color:var(--cyan);box-shadow:0 16px 40px rgba(0,200,224,.08);}
+  .arch-icon{font-size:2rem;margin-bottom:1rem;display:block;}
+  .arch-card h3{font-family:var(--head);font-size:1.15rem;font-weight:700;color:var(--text);margin-bottom:.3rem;}
+  .arch-owner{font-family:var(--mono);font-size:10px;color:var(--cyan);letter-spacing:1px;margin-bottom:.8rem;}
+  .arch-card p{font-size:13.5px;color:var(--dim);line-height:1.7;}
+  .arch-files{margin-top:1.2rem;display:flex;flex-wrap:wrap;gap:6px;}
+  .arch-tag{font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--dim);border:1px solid var(--border);padding:3px 8px;border-radius:3px;}
+
+  /* FLOW */
+  .flow{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;margin:2.5rem 0;}
+  .flow-node{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px 16px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--cyan);letter-spacing:1px;white-space:nowrap;line-height:1.5;}
+  .flow-arrow{font-family:var(--mono);color:var(--dim);font-size:16px;padding:0 6px;}
+
+  /* RESULTS */
+  .results-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;}
+  .result-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1.8rem;}
+  .result-card h4{font-family:var(--head);font-size:1rem;font-weight:700;color:var(--text);margin-bottom:1rem;padding-bottom:.6rem;border-bottom:1px solid var(--border);}
+  .metric-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(26,58,92,.4);font-size:13px;}
+  .metric-row:last-child{border-bottom:none;}
+  .metric-name{color:var(--dim);}
+  .metric-val{font-family:var(--mono);color:var(--cyan);}
+  .metric-pass{font-family:var(--mono);color:var(--ok);font-size:11px;}
+  .metric-fail{font-family:var(--mono);color:var(--warn);font-size:11px;}
+
+  /* LIMITATIONS */
+  .limit-list{list-style:none;display:flex;flex-direction:column;gap:1rem;}
+  .limit-item{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--warn);border-radius:0 8px 8px 0;padding:1.2rem 1.5rem;font-size:14px;color:var(--dim);line-height:1.7;}
+  .limit-item strong{color:var(--text);display:block;margin-bottom:4px;font-family:var(--head);font-size:.95rem;letter-spacing:.5px;}
+
+  /* TEAM */
+  .team-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;}
+  .team-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:2rem 1.5rem;text-align:center;transition:transform .2s,border-color .2s;}
+  .team-card:hover{transform:translateY(-4px);border-color:var(--cyan);}
+  .team-avatar{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--border),var(--panel));border:2px solid var(--border);margin:0 auto 1rem;display:flex;align-items:center;justify-content:center;font-family:var(--head);font-size:1.5rem;font-weight:700;color:var(--cyan);}
+  .team-name{font-family:var(--head);font-size:1.1rem;font-weight:700;color:var(--text);margin-bottom:.2rem;}
+  .team-role{font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--cyan);text-transform:uppercase;margin-bottom:.8rem;}
+  .team-desc{font-size:13px;color:var(--dim);line-height:1.7;}
+
+  /* STACK */
+  .stack-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:1rem;}
+  .stack-item{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1rem;text-align:center;transition:all .2s;}
+  .stack-item:hover{border-color:var(--cyan);transform:translateY(-2px);}
+  .stack-icon{font-size:1.5rem;margin-bottom:6px;display:block;}
+  .stack-name{font-family:var(--mono);font-size:11px;color:var(--cyan);letter-spacing:1px;}
+  .stack-desc{font-size:11px;color:var(--dim);margin-top:3px;}
+
+  /* TERMINAL */
+  .terminal{background:#020810;border:1px solid var(--border);border-radius:8px;padding:1.5rem;font-family:var(--mono);font-size:12px;color:var(--text);line-height:2;margin:2rem 0;}
+  .terminal::before{content:'● ● ●';display:block;color:var(--border);letter-spacing:4px;margin-bottom:1rem;font-size:10px;}
+  .t-prompt{color:var(--cyan);}
+  .t-ok{color:var(--ok);}
+  .t-alert{color:var(--danger);}
+  .t-info{color:var(--dim);}
+
+  /* FOOTER */
+  footer{background:var(--panel);border-top:1px solid var(--border);padding:2.5rem 2rem;text-align:center;position:relative;z-index:1;}
+  footer p{font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:1px;line-height:2;}
+  footer a{color:var(--cyan);text-decoration:none;}
+  footer a:hover{text-decoration:underline;}
+
+  /* REVEAL */
+  @keyframes fadeUp{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:translateY(0);}}
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .6s ease,transform .6s ease;}
+  .reveal.visible{opacity:1;transform:translateY(0);}
+
+  @media(max-width:768px){
+    .arch-grid,.team-grid{grid-template-columns:1fr;}
+    .results-grid,.overview-grid{grid-template-columns:1fr;}
+    .nav-links{display:none;}
+    .stat{min-width:140px;}
+  }
+</style>
+</head>
+<body>
+<div class="orb"></div>
+
+<nav>
+  <span class="nav-brand">SMART FIREWALL</span>
+  <ul class="nav-links">
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#results">Results</a></li>
+    <li><a href="#limitations">Limitations</a></li>
+    <li><a href="#team">Team</a></li>
+    <li><a href="https://github.com/animeshmamgain/Smart-Firewall-With-AI-Cloud-Integration" target="_blank">GitHub</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">B.TECH GRADUATION MAJOR PROJECT &nbsp;·&nbsp; CSE &nbsp;·&nbsp; 2026</div>
+  <h1>Smart Firewall<br/><span>With AI &amp; Cloud</span></h1>
+  <p class="hero-sub">Detect &nbsp;·&nbsp; Enforce &nbsp;·&nbsp; Share</p>
+  <p class="hero-desc">
+    A three-component network defence system that combines machine learning based
+    attack detection, kernel-level firewall enforcement, and real-time cloud threat
+    intelligence sharing across firewall instances.
+  </p>
+  <div class="hero-btns">
+    <a href="https://github.com/animeshmamgain/Smart-Firewall-With-AI-Cloud-Integration" target="_blank" class="btn btn-primary">View Source on GitHub</a>
+    <a href="#overview" class="btn btn-ghost">Learn More</a>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="stat-value">94.6%</span><span class="stat-label">Macro F1 (5-fold CV)</span></div>
+    <div class="stat"><span class="stat-value">12/13</span><span class="stat-label">Attack Variants Caught</span></div>
+    <div class="stat"><span class="stat-value">6</span><span class="stat-label">Attack Classes</span></div>
+    <div class="stat"><span class="stat-value">&lt;10s</span><span class="stat-label">Detection Latency</span></div>
+    <div class="stat"><span class="stat-value">12</span><span class="stat-label">Flow Features</span></div>
+  </div>
+</section>
+
+<!-- OVERVIEW -->
+<section id="overview" class="section-wrap alt-bg">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">The Problem</p>
+      <h2 class="section-title">Why We Built This</h2>
+      <div class="section-rule"></div>
+      <p class="section-intro">
+        Traditional firewalls filter traffic using fixed rules based on port numbers,
+        IP addresses, and protocols. They cannot detect attacks whose identity only
+        emerges from patterns of behaviour across many packets over time. A port scan
+        looks normal packet by packet. A brute-force attempt looks like ordinary login
+        traffic. A Slowloris attack looks like a slow but legitimate connection.
+        We built a system that learns what these attacks actually look like in practice.
+      </p>
+    </div>
+    <div class="overview-grid reveal">
+      <div class="overview-card">
+        <h3>What It Does</h3>
+        <p>Captures live network traffic, aggregates packets into ten-second windows per source
+        address, computes statistical features, and classifies each window as benign or one of five
+        attack types using a hybrid rule-plus-machine-learning approach. When an attack is detected,
+        the system automatically blocks the source at the kernel level and shares the event with peer
+        firewall instances through a cloud database.</p>
+      </div>
+      <div class="overview-card">
+        <h3>How It Is Different</h3>
+        <p>Unlike a pure rule-based firewall, the model learns from real captured attack traffic
+        generated in the actual deployment environment rather than a generic public dataset. Unlike
+        a pure ML detector, it layers deterministic rules on top of the model so obvious attacks are
+        caught immediately. The result is a hybrid that is both fast and accurate, with a dashboard
+        for human oversight and approval.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section id="architecture" class="section-wrap">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">System Design</p>
+      <h2 class="section-title">Three-Tier Architecture</h2>
+      <div class="section-rule"></div>
+      <p class="section-intro">
+        The system is split into three independent components that communicate through
+        documented contracts. Each component can be run, tested, and modified without
+        changing the others.
+      </p>
+    </div>
+
+    <div class="arch-grid reveal">
+      <div class="arch-card ai">
+        <span class="arch-icon">🧠</span>
+        <h3>AI Detection</h3>
+        <div class="arch-owner">ai/</div>
+        <p>Opens a raw socket on the network interface and captures packets in real time using Scapy.
+        Aggregates packets per source address into ten-second rolling windows and computes twelve
+        statistical flow features per window. Runs deterministic rules first, then a Random Forest
+        model for ambiguous cases. When an attack is detected above a confidence threshold, appends
+        a JSON event to a shared contract file and writes a heartbeat so the agent can verify the
+        detector is alive.</p>
+        <div class="arch-files">
+          <span class="arch-tag">detector.py</span>
+          <span class="arch-tag">sfw_model.joblib</span>
+          <span class="arch-tag">dataset.csv</span>
+        </div>
+      </div>
+      <div class="arch-card agent">
+        <span class="arch-icon">🛡</span>
+        <h3>Firewall Agent</h3>
+        <div class="arch-owner">agent/</div>
+        <p>The enforcement layer. Tails the shared JSON events file, parses each new alert, and
+        applies iptables DROP rules at the kernel level. Supports automatic mode (blocks immediately)
+        and manual mode (queues for human approval). Blocks auto-expire after five minutes. A tabbed
+        dashboard shows live alerts, pending approvals, blocked addresses, and the detector log.
+        The agent also launches and monitors the detector subprocess.</p>
+        <div class="arch-files">
+          <span class="arch-tag">main.py</span>
+          <span class="arch-tag">enforcer.py</span>
+          <span class="arch-tag">gui.py</span>
+          <span class="arch-tag">database.py</span>
+        </div>
+      </div>
+      <div class="arch-card cloud">
+        <span class="arch-icon">☁</span>
+        <h3>Cloud Intelligence</h3>
+        <div class="arch-owner">agent/cloud_hooks.py</div>
+        <p>Publishes every detection event and block decision to Firebase Realtime Database.
+        Subscribes to block decisions from every other connected firewall node and applies them
+        locally so an attack seen on one node pre-emptively protects others. Runs in a background
+        thread and degrades gracefully if the cloud is unreachable, keeping the core system
+        working in offline mode.</p>
+        <div class="arch-files">
+          <span class="arch-tag">cloud_hooks.py</span>
+          <span class="arch-tag">Firebase RTDB</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <p class="section-label" style="margin-top:2.5rem">Data Flow</p>
+      <div class="flow">
+        <div class="flow-node">Attacker<br/>Traffic</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">Scapy<br/>Sniffer</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">Rolling<br/>Buffer (10s)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">12 Feature<br/>Vector</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">Rules +<br/>Random Forest</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">events.jsonl<br/>(contract)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">Agent +<br/>iptables</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node">Firebase<br/>Cloud</div>
+      </div>
+    </div>
+
+    <div class="terminal reveal">
+      <span class="t-info"># Live detector output — port scan detected by rule, brute force by ML</span><br/>
+      <span class="t-prompt">[14:25:36]</span> <span class="t-info">      src=192.168.254.20  pred=port_scan       conf=0.490 pkts=1118 ports=559</span><br/>
+      <span class="t-prompt">[14:25:39]</span> <span class="t-alert">RULE  src=192.168.254.20  pred=port_scan       conf=1.000 pkts=3262 ports=1635</span><br/>
+      <span class="t-ok">           -> emitted: port_scan (block)</span><br/>
+      <span class="t-prompt">[14:55:49]</span> <span class="t-alert">ALERT src=192.168.254.20  pred=brute_force_ssh conf=0.980 pkts=64</span><br/>
+      <span class="t-ok">           -> emitted: brute_force_ssh (block)</span><br/>
+      <span class="t-prompt">[14:56:38]</span> <span class="t-alert">ALERT src=192.168.254.20  pred=dos_flood        conf=0.780 pkts=4241</span><br/>
+      <span class="t-ok">           -> emitted: dos_flood (rate_limit)</span>
+    </div>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section id="results" class="section-wrap alt-bg">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">Evaluation</p>
+      <h2 class="section-title">Performance Results</h2>
+      <div class="section-rule"></div>
+      <p class="section-intro">
+        The model was evaluated under five-fold stratified cross-validation and tested live
+        against thirteen attack variants including tools and protocols not seen during training.
+      </p>
+    </div>
+    <div class="results-grid reveal">
+      <div class="result-card">
+        <h4>Cross-Validation Summary</h4>
+        <div class="metric-row"><span class="metric-name">Macro F1 Mean</span><span class="metric-val">94.6%</span></div>
+        <div class="metric-row"><span class="metric-name">Standard Deviation</span><span class="metric-val">±7.9%</span></div>
+        <div class="metric-row"><span class="metric-name">Folds</span><span class="metric-val">5 stratified</span></div>
+        <div class="metric-row"><span class="metric-name">Training Samples</span><span class="metric-val">123 windows</span></div>
+        <div class="metric-row"><span class="metric-name">Algorithm</span><span class="metric-val">Random Forest</span></div>
+        <div class="metric-row"><span class="metric-name">Test Set Accuracy</span><span class="metric-val">96.8%</span></div>
+      </div>
+      <div class="result-card">
+        <h4>Per-Class F1 Score (Test Set)</h4>
+        <div class="metric-row"><span class="metric-name">benign</span><span class="metric-pass">1.000 ✓</span></div>
+        <div class="metric-row"><span class="metric-name">port_scan</span><span class="metric-pass">1.000 ✓</span></div>
+        <div class="metric-row"><span class="metric-name">brute_force_ftp</span><span class="metric-pass">1.000 ✓</span></div>
+        <div class="metric-row"><span class="metric-name">dos_flood</span><span class="metric-pass">1.000 ✓</span></div>
+        <div class="metric-row"><span class="metric-name">brute_force_ssh</span><span class="metric-pass">0.909 ✓</span></div>
+        <div class="metric-row"><span class="metric-name">dos_slow</span><span class="metric-fail">0.667 (small sample, n=9)</span></div>
+      </div>
+      <div class="result-card">
+        <h4>Top Feature Importances</h4>
+        <div class="metric-row"><span class="metric-name">mean_pkt_size</span><span class="metric-val">19.8%</span></div>
+        <div class="metric-row"><span class="metric-name">mean_iat</span><span class="metric-val">12.3%</span></div>
+        <div class="metric-row"><span class="metric-name">byte_count</span><span class="metric-val">11.9%</span></div>
+        <div class="metric-row"><span class="metric-name">std_pkt_size</span><span class="metric-val">11.0%</span></div>
+        <div class="metric-row"><span class="metric-name">pkt_count</span><span class="metric-val">10.7%</span></div>
+        <div class="metric-row"><span class="metric-name">unique_dst_ips</span><span class="metric-fail">0.000 (zero variance in env)</span></div>
+      </div>
+      <div class="result-card">
+        <h4>Live Generalisation Tests</h4>
+        <div class="metric-row"><span class="metric-name">nmap SYN scan</span><span class="metric-pass">DETECTED ✓ (rule)</span></div>
+        <div class="metric-row"><span class="metric-name">masscan — different tool</span><span class="metric-pass">DETECTED ✓ (rule)</span></div>
+        <div class="metric-row"><span class="metric-name">nmap FIN scan, no SYN flags</span><span class="metric-pass">DETECTED ✓ (rule)</span></div>
+        <div class="metric-row"><span class="metric-name">hydra SSH brute force</span><span class="metric-pass">DETECTED ✓ (ml)</span></div>
+        <div class="metric-row"><span class="metric-name">medusa — different tool</span><span class="metric-pass">DETECTED ✓ (ml)</span></div>
+        <div class="metric-row"><span class="metric-name">hping3 SYN / UDP / ICMP flood</span><span class="metric-pass">DETECTED ✓ (rule)</span></div>
+        <div class="metric-row"><span class="metric-name">slowhttptest Slowloris</span><span class="metric-pass">DETECTED ✓ (rule)</span></div>
+        <div class="metric-row"><span class="metric-name">nmap -T2 slow scan</span><span class="metric-fail">MISSED — known limitation</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LIMITATIONS -->
+<section id="limitations" class="section-wrap">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">Honest Assessment</p>
+      <h2 class="section-title">Known Limitations</h2>
+      <div class="section-rule"></div>
+      <p class="section-intro">These are real constraints, not disclaimers.</p>
+    </div>
+    <ul class="limit-list reveal">
+      <li class="limit-item">
+        <strong>Environment-Specific Model</strong>
+        The classifier was trained on traffic captured in a specific VirtualBox host-only network
+        between two virtual machines. Deploying on a different network topology or hardware platform
+        will likely require re-capturing training data and retraining the model. It is tuned for
+        this deployment, not for a generic network.
+      </li>
+      <li class="limit-item">
+        <strong>Limited to Trained Attack Classes</strong>
+        The system can only identify the five attack types it was trained on: port scanning,
+        SSH brute force, FTP brute force, volumetric denial of service, and slow-rate denial
+        of service. Any attack outside these categories will be classified as the nearest known
+        class rather than flagged as unknown. It does not perform anomaly detection.
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- STACK -->
+<section class="section-wrap alt-bg">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">Technology</p>
+      <h2 class="section-title">Built With</h2>
+      <div class="section-rule"></div>
+    </div>
+    <div class="stack-grid reveal">
+      <div class="stack-item"><span class="stack-icon">🐍</span><div class="stack-name">Python 3.12</div><div class="stack-desc">Core language</div></div>
+      <div class="stack-item"><span class="stack-icon">📡</span><div class="stack-name">Scapy</div><div class="stack-desc">Packet capture</div></div>
+      <div class="stack-item"><span class="stack-icon">🤖</span><div class="stack-name">scikit-learn</div><div class="stack-desc">Random Forest</div></div>
+      <div class="stack-item"><span class="stack-icon">🔢</span><div class="stack-name">NumPy / Pandas</div><div class="stack-desc">Feature engineering</div></div>
+      <div class="stack-item"><span class="stack-icon">🔥</span><div class="stack-name">Firebase RTDB</div><div class="stack-desc">Cloud sync</div></div>
+      <div class="stack-item"><span class="stack-icon">🛡</span><div class="stack-name">iptables</div><div class="stack-desc">Enforcement</div></div>
+      <div class="stack-item"><span class="stack-icon">🖥</span><div class="stack-name">customtkinter</div><div class="stack-desc">Dashboard GUI</div></div>
+      <div class="stack-item"><span class="stack-icon">🗄</span><div class="stack-name">SQLite</div><div class="stack-desc">Local logging</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- TEAM -->
+<section id="team" class="section-wrap">
+  <div class="container">
+    <div class="reveal">
+      <p class="section-label">The Team</p>
+      <h2 class="section-title">Who Built What</h2>
+      <div class="section-rule"></div>
+    </div>
+    <div class="team-grid reveal">
+      <div class="team-card">
+        <div class="team-avatar">AM</div>
+        <div class="team-name">Animesh Mamgain</div>
+        <div class="team-role">AI Detection</div>
+        <p class="team-desc">Designed and built the entire AI component: dataset capture in a
+        controlled lab environment, feature engineering, model training and cross-validation,
+        the hybrid rule-plus-ML classifier, and the live detector script. Responsible for the
+        integration contract between the detection and enforcement tiers.</p>
+      </div>
+      <div class="team-card">
+        <div class="team-avatar">PB</div>
+        <div class="team-name">Priyanshu Bisht</div>
+        <div class="team-role">Firewall Agent</div>
+        <p class="team-desc">Built the firewall enforcement layer: the iptables-based blocker,
+        auto-unblock timer, event consumer, local SQLite log, alert store, and the customtkinter
+        dashboard with auto and manual blocking modes. Integrated the agent with the AI detector
+        through the shared events contract.</p>
+      </div>
+      <div class="team-card">
+        <div class="team-avatar">PS</div>
+        <div class="team-name">Princy Samant</div>
+        <div class="team-role">Cloud Integration</div>
+        <p class="team-desc">Implemented the Firebase Realtime Database integration: publishing
+        threat events and block decisions from each node, maintaining the peer block index, and
+        pulling shared blocklists so every connected firewall benefits from what any node detects.
+        Also contributed to project documentation and research.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>
+    Smart Firewall with AI &amp; Cloud Integration<br/>
+    B.Tech Major Project &nbsp;·&nbsp; Computer Science &amp; Engineering &nbsp;·&nbsp; 2026<br/>
+    Graphic Era Hill University, Dehradun<br/><br/>
+    <a href="https://github.com/animeshmamgain/Smart-Firewall-With-AI-Cloud-Integration" target="_blank">
+      github.com/animeshmamgain/Smart-Firewall-With-AI-Cloud-Integration
+    </a>
+  </p>
+</footer>
+
+<script>
+  const reveals = document.querySelectorAll('.reveal');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach((e, i) => {
+      if (e.isIntersecting) {
+        setTimeout(() => e.target.classList.add('visible'), i * 80);
+        observer.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.08 });
+  reveals.forEach(r => observer.observe(r));
+</script>
+</body>
+</html>

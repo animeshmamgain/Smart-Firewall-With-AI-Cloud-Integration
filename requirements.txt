@@ -1,0 +1,17 @@
+# Python dependencies for Smart Firewall (AI + Agent)
+# Install with: pip install -r requirements.txt
+
+# Core ML / data
+scikit-learn>=1.3
+numpy>=1.24
+pandas>=2.0
+joblib>=1.3
+
+# Network capture
+scapy>=2.5
+
+# Agent UI
+customtkinter>=5.2
+
+# Cloud threat sharing
+firebase-admin>=6.2

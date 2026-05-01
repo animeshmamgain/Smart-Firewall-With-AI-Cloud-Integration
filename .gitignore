@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+agent/logs/
+agent/serviceAccountKey.json
+shared/events.jsonl
+shared/heartbeat.txt
