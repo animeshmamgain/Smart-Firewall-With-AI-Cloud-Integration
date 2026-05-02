@@ -34,10 +34,27 @@ class FirewallAgentUI:
         self._build_ui()
         self._configure_treeview_style()
 
+        # SYNC STATE ON STARTUP
+        self._sync_existing_blocks()
+
         self.consumer.start()
         self.runner.start()
         self.root.after(GUI_REFRESH_INTERVAL, self._refresh_loop)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _sync_existing_blocks(self):
+        active_blocks = self.db.get_active_blocks()
+        now = time.time()
+        for record in active_blocks:
+            elapsed = now - record["at"]
+            if elapsed < AUTO_UNBLOCK_SECONDS:
+                # Still active, tell enforcer to restore it into RAM and OS iptables
+                self.enforcer.block(record["ip"], attack_type=record["attack_type"], auto=True)
+            else:
+                # Expired while agent was closed. Clean it up safely.
+                self.enforcer.unblock(record["ip"])
+                self.db.log_action("unblock", record["ip"], "expired_offline")
+                cloud_hooks.remove_block(record["ip"])
 
     def _build_ui(self):
         self._build_header()
@@ -320,9 +337,23 @@ class FirewallAgentUI:
             self.store.clear_pending()
             self._dirty = True
 
+
+    def _is_valid_ip(self, ip: str) -> bool:
+        """Return True if ip is a valid IPv4 address."""
+        parts = ip.strip().split(".")
+        if len(parts) != 4:
+            return False
+        try:
+            return all(0 <= int(p) <= 255 for p in parts)
+        except ValueError:
+            return False
+
     def _manual_block(self):
         ip = self.ip_entry.get().strip()
         if not ip: return
+        if not self._is_valid_ip(ip):
+            info(self.root, "Invalid IP", f"'{ip}' is not a valid IPv4 address.\nExample: 192.168.1.50")
+            return
         if self.enforcer.block(ip, attack_type="manual", auto=False):
             self.db.log_action("block", ip, "manual")
             cloud_hooks.push_block(ip, "manual", AUTO_UNBLOCK_SECONDS)
@@ -379,7 +410,10 @@ class FirewallAgentUI:
         if self._dirty:
             self._refresh_alerts()
             self._refresh_pending()
-            self._refresh_blocked()
+            self._refresh_blocked_structure()
+        
+        self._update_blocked_timers()
+        
         self._refresh_log()
         self._refresh_ai_status()
         self._apply_peer_blocks()
@@ -435,7 +469,7 @@ class FirewallAgentUI:
             if r["id"] == sel_id:
                 self.pending_tree.selection_set(iid)
 
-    def _refresh_blocked(self):
+    def _refresh_blocked_structure(self):
         sel_ip = None
         sel = self.blocked_tree.selection()
         if sel:
@@ -452,9 +486,27 @@ class FirewallAgentUI:
             tag = "auto" if info_["auto"] else "manual"
             iid = self.blocked_tree.insert("", "end", values=(
                 ip, info_["attack"], tag, f"{remaining}s",
-            ))
+            ), tags=(ip,))
             if ip == sel_ip:
                 self.blocked_tree.selection_set(iid)
+
+    def _update_blocked_timers(self):
+        now = time.time()
+        blocked_ips = dict(self.enforcer.list_blocked())
+        
+        for child in self.blocked_tree.get_children():
+            tags = self.blocked_tree.item(child)["tags"]
+            if not tags: continue
+            ip = tags[0]
+            
+            if ip in blocked_ips:
+                info_ = blocked_ips[ip]
+                elapsed = int(now - info_["at"])
+                remaining = max(0, AUTO_UNBLOCK_SECONDS - elapsed)
+                
+                current_values = list(self.blocked_tree.item(child)["values"])
+                current_values[3] = f"{remaining}s"
+                self.blocked_tree.item(child, values=current_values)
 
     def _refresh_log(self):
         lines = self.runner.get_log_lines()

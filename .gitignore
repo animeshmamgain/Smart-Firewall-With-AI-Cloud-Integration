@@ -1,8 +1,28 @@
-venv/
+# Secrets — never commit these
+.env
+agent/serviceAccountKey.json
+*.json
+
+# Python
 __pycache__/
 *.pyc
-.ipynb_checkpoints/
+*.pyo
+*.pyd
+venv/
+*.egg-info/
+
+# Runtime files
 agent/logs/
-agent/serviceAccountKey.json
+shared/
+*.db
+
+# IDE
+.vscode/
+.idea/
+
+# Runtime files — don't commit these
 shared/events.jsonl
 shared/heartbeat.txt
+agent/logs/
+ai/data/processed/.ipynb_checkpoints/
+ai/scripts/.ipynb_checkpoints/

@@ -6,6 +6,9 @@ import socket
 import fcntl
 import struct
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 from collections import defaultdict, deque
 
 import numpy as np
@@ -23,7 +26,7 @@ def get_ip_address(ifname):
     except Exception:
         return "127.0.0.1"
 
-INTERFACE       = "enp0s8"
+INTERFACE = os.getenv("SFW_INTERFACE", "enp0s8")
 VICTIM_IP       = get_ip_address(INTERFACE)
 WINDOW_SEC      = 10
 SCORE_INTERVAL  = 2.0

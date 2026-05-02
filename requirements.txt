@@ -15,3 +15,4 @@ customtkinter>=5.2
 
 # Cloud threat sharing
 firebase-admin>=6.2
+python-dotenv>=1.0

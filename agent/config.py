@@ -2,6 +2,10 @@ from pathlib import Path
 import socket
 import fcntl
 import struct
+import os
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 AGENT_DIR   = Path(__file__).resolve().parent
 PROJECT_DIR = AGENT_DIR.parent
@@ -17,6 +21,8 @@ MAX_RECENT_ALERTS    = 100
 EVENT_POLL_INTERVAL  = 0.5
 GUI_REFRESH_INTERVAL = 1000
 
+INTERFACE = os.getenv("SFW_INTERFACE", "enp0s8")
+
 def get_ip_address(ifname):
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -28,7 +34,7 @@ def get_ip_address(ifname):
     except Exception:
         return "127.0.0.1"
 
-local_ip = get_ip_address("enp0s8")
+local_ip = get_ip_address(INTERFACE)
 
 WHITELIST = {
     "127.0.0.1",
