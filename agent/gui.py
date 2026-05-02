@@ -1,13 +1,3 @@
-"""
-gui.py - Tab-based firewall agent UI.
-
-Header:    title, AI status, mode toggle
-Tabs:      ALERTS | PENDING | BLOCKED | DETECTOR
-Footer:    manual block control (always visible, primary user action)
-
-Right-click any row for context actions.
-"""
-
 import time
 import tkinter as tk
 import customtkinter as ctk
@@ -19,25 +9,21 @@ from event_consumer    import EventConsumer
 from database          import Database
 from detector_runner   import DetectorRunner
 from alert_store       import AlertStore
-from widgets           import (make_panel, make_section_header, make_button,
-                               make_entry, make_label, tint)
+from widgets           import make_panel, make_section_header, make_button, make_entry, make_label, tint
 from dialogs           import confirm, info, show_alert_detail
 import cloud_hooks
-
 
 class FirewallAgentUI:
     def __init__(self):
         self.mode   = DEFAULT_MODE
         self._dirty = True
 
-        # Backend
         self.db        = Database()
         self.enforcer  = Enforcer(on_change=self._mark_dirty)
         self.consumer  = EventConsumer(on_event=self._handle_event)
         self.runner    = DetectorRunner()
         self.store     = AlertStore()
 
-        # Root
         ctk.set_appearance_mode("dark")
         self.root = ctk.CTk()
         self.root.title("Smart Firewall Agent")
@@ -53,63 +39,37 @@ class FirewallAgentUI:
         self.root.after(GUI_REFRESH_INTERVAL, self._refresh_loop)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # -- UI construction --------------------------------------------
-
     def _build_ui(self):
         self._build_header()
         self._build_tabs()
         self._build_footer()
 
     def _build_header(self):
-        hdr = ctk.CTkFrame(self.root, fg_color=THEME["panel"],
-                           border_color=THEME["accent"], border_width=1,
-                           corner_radius=0, height=60)
+        hdr = ctk.CTkFrame(self.root, fg_color=THEME["panel"], border_color=THEME["accent"], border_width=1, corner_radius=0, height=60)
         hdr.pack(fill="x"); hdr.pack_propagate(False)
 
-        ctk.CTkLabel(hdr, text="\u25c6 SMART FIREWALL AGENT",
-                     font=("Courier New", 20, "bold"),
-                     text_color=THEME["accent"]).pack(side="left", padx=22)
+        ctk.CTkLabel(hdr, text="\u25c6 SMART FIREWALL AGENT", font=("Courier New", 20, "bold"), text_color=THEME["accent"]).pack(side="left", padx=22)
 
-        # AI status
-        self.ai_status_lbl = ctk.CTkLabel(
-            hdr, text="\u25cf AI: starting...",
-            font=("Courier New", 12, "bold"),
-            text_color=THEME["text_dim"],
-        )
+        self.ai_status_lbl = ctk.CTkLabel(hdr, text="\u25cf AI: starting...", font=("Courier New", 12, "bold"), text_color=THEME["text_dim"])
         self.ai_status_lbl.pack(side="right", padx=20)
 
-        # Mode segmented control
         mode_box = ctk.CTkFrame(hdr, fg_color="transparent")
         mode_box.pack(side="right", padx=14)
-        make_label(mode_box, "MODE:", color=THEME["text_dim"],
-                   font=("Courier New", 10, "bold")).pack(side="left", padx=(0, 10))
+        make_label(mode_box, "MODE:", color=THEME["text_dim"], font=("Courier New", 10, "bold")).pack(side="left", padx=(0, 10))
         self.mode_seg = ctk.CTkSegmentedButton(
-            mode_box, values=["AUTO", "MANUAL"],
-            command=self._mode_changed,
-            font=("Courier New", 11, "bold"),
-            selected_color=THEME["accent"],
-            selected_hover_color=tint(THEME["accent"], 0.30),
-            unselected_color=THEME["panel2"],
-            unselected_hover_color=THEME["border"],
-            text_color=THEME["text"],
-            height=32,
+            mode_box, values=["AUTO", "MANUAL"], command=self._mode_changed, font=("Courier New", 11, "bold"),
+            selected_color=THEME["accent"], selected_hover_color=tint(THEME["accent"], 0.30),
+            unselected_color=THEME["panel2"], unselected_hover_color=THEME["border"], text_color=THEME["text"], height=32,
         )
         self.mode_seg.set("AUTO" if self.mode == "auto" else "MANUAL")
         self.mode_seg.pack(side="left")
 
     def _build_tabs(self):
         self.tabs = ctk.CTkTabview(
-            self.root,
-            fg_color=THEME["panel"],
-            segmented_button_fg_color=THEME["panel2"],
-            segmented_button_selected_color=THEME["accent"],
-            segmented_button_selected_hover_color=tint(THEME["accent"], 0.30),
-            segmented_button_unselected_color=THEME["panel2"],
-            segmented_button_unselected_hover_color=THEME["border"],
-            text_color=THEME["text"],
-            text_color_disabled=THEME["text_dim"],
-            border_color=THEME["border"], border_width=1,
-            corner_radius=6,
+            self.root, fg_color=THEME["panel"], segmented_button_fg_color=THEME["panel2"],
+            segmented_button_selected_color=THEME["accent"], segmented_button_selected_hover_color=tint(THEME["accent"], 0.30),
+            segmented_button_unselected_color=THEME["panel2"], segmented_button_unselected_hover_color=THEME["border"],
+            text_color=THEME["text"], text_color_disabled=THEME["text_dim"], border_color=THEME["border"], border_width=1, corner_radius=6,
         )
         self.tabs.pack(fill="both", expand=True, padx=14, pady=10)
 
@@ -121,15 +81,11 @@ class FirewallAgentUI:
         self._build_blocked_tab(self.tabs.tab("BLOCKED"))
         self._build_detector_tab(self.tabs.tab("DETECTOR"))
 
-    # -- Tab: Alerts ------------------------------------------------
-
     def _build_alerts_tab(self, parent):
         cols = ("time", "src_ip", "attack", "conf", "src", "status")
         widths   = {"time": 110, "src_ip": 180, "attack": 200, "conf": 110, "src": 110, "status": 140}
-        anchors  = {"time": "center", "src_ip": "w", "attack": "w",
-                    "conf": "center", "src": "center", "status": "center"}
-        headings = {"time": "TIME", "src_ip": "SOURCE IP", "attack": "ATTACK",
-                    "conf": "CONFIDENCE", "src": "DETECT", "status": "STATUS"}
+        anchors  = {"time": "center", "src_ip": "w", "attack": "w", "conf": "center", "src": "center", "status": "center"}
+        headings = {"time": "TIME", "src_ip": "SOURCE IP", "attack": "ATTACK", "conf": "CONFIDENCE", "src": "DETECT", "status": "STATUS"}
         self.alerts_tree = ttk.Treeview(parent, columns=cols, show="headings", height=16)
         for c in cols:
             self.alerts_tree.heading(c, text=headings[c], anchor=anchors[c])
@@ -139,12 +95,7 @@ class FirewallAgentUI:
         self.alerts_tree.bind("<Double-Button-1>", self._on_alert_double_click)
         self.alerts_tree.bind("<Button-3>", self._on_alert_right_click)
 
-        make_label(parent,
-            "  Tip: double-click for details   |   right-click for more actions",
-            color=THEME["text_dim"], font=("Courier New", 11),
-        ).pack(fill="x", padx=18, pady=(0, 12))
-
-    # -- Tab: Pending -----------------------------------------------
+        make_label(parent, "  Tip: double-click for details   |   right-click for more actions", color=THEME["text_dim"], font=("Courier New", 11)).pack(fill="x", padx=18, pady=(0, 12))
 
     def _build_pending_tab(self, parent):
         cols = ("time", "src_ip", "attack", "conf")
@@ -166,8 +117,6 @@ class FirewallAgentUI:
         make_button(action_row, "\u2717 DISMISS",     self._dismiss_selected, color=THEME["text_dim"]).pack(side="left", padx=4)
         make_button(action_row, "DISMISS ALL",        self._dismiss_all,      color=THEME["text_dim"]).pack(side="right", padx=4)
 
-    # -- Tab: Blocked -----------------------------------------------
-
     def _build_blocked_tab(self, parent):
         cols = ("ip", "attack", "type", "remaining")
         widths   = {"ip": 220, "attack": 240, "type": 160, "remaining": 160}
@@ -186,33 +135,20 @@ class FirewallAgentUI:
         make_button(action_row, "UNBLOCK SELECTED", self._unblock_selected, color=THEME["ok"]).pack(side="left", padx=4)
         make_button(action_row, "UNBLOCK ALL",      self._unblock_all,      color=THEME["warn"]).pack(side="right", padx=4)
 
-    # -- Tab: Detector ----------------------------------------------
-
     def _build_detector_tab(self, parent):
         info_row = ctk.CTkFrame(parent, fg_color="transparent")
         info_row.pack(fill="x", padx=16, pady=(14, 8))
-        make_label(info_row, "  Live output from the AI detector subprocess:",
-                   color=THEME["text_dim"], font=("Courier New", 11),
-                   ).pack(side="left")
+        make_label(info_row, "  Live output from the AI detector subprocess:", color=THEME["text_dim"], font=("Courier New", 11)).pack(side="left")
 
-        self.log_text = ctk.CTkTextbox(
-            parent, font=("Courier New", 12),
-            fg_color=THEME["panel2"], text_color=THEME["text"],
-            scrollbar_button_color=THEME["border"], corner_radius=4,
-        )
+        self.log_text = ctk.CTkTextbox(parent, font=("Courier New", 12), fg_color=THEME["panel2"], text_color=THEME["text"], scrollbar_button_color=THEME["border"], corner_radius=4)
         self.log_text.pack(fill="both", expand=True, padx=14, pady=(0, 14))
         self.log_text.configure(state="disabled")
 
-    # -- Footer -----------------------------------------------------
-
     def _build_footer(self):
-        footer = ctk.CTkFrame(self.root, fg_color=THEME["panel"],
-                              border_color=THEME["border"], border_width=1,
-                              corner_radius=0, height=64)
+        footer = ctk.CTkFrame(self.root, fg_color=THEME["panel"], border_color=THEME["border"], border_width=1, corner_radius=0, height=64)
         footer.pack(fill="x", side="bottom"); footer.pack_propagate(False)
 
-        make_label(footer, "  Quick block:", color=THEME["text_dim"],
-                   font=("Courier New", 11)).pack(side="left", padx=(16, 6))
+        make_label(footer, "  Quick block:", color=THEME["text_dim"], font=("Courier New", 11)).pack(side="left", padx=(16, 6))
 
         self.ip_entry = make_entry(footer, "Enter IP, e.g. 192.168.1.50", width=240)
         self.ip_entry.pack(side="left", padx=4)
@@ -221,26 +157,13 @@ class FirewallAgentUI:
         make_button(footer, "\U0001F512 BLOCK",   self._manual_block,   color=THEME["danger"], width=110).pack(side="left", padx=4)
         make_button(footer, "\U0001F513 UNBLOCK", self._manual_unblock, color=THEME["ok"],     width=110).pack(side="left", padx=4)
 
-        make_button(footer, "CLEAR HISTORY", self._clear_history,
-                    color=THEME["text_dim"], width=130).pack(side="right", padx=14)
-
-    # -- Style ------------------------------------------------------
+        make_button(footer, "CLEAR HISTORY", self._clear_history, color=THEME["text_dim"], width=130).pack(side="right", padx=14)
 
     def _configure_treeview_style(self):
         style = ttk.Style(); style.theme_use("default")
-        style.configure("Treeview",
-            background=THEME["panel2"], foreground=THEME["text"],
-            fieldbackground=THEME["panel2"], borderwidth=0,
-            font=("Courier New", 12), rowheight=32)
-        style.configure("Treeview.Heading",
-            background=THEME["panel"], foreground=THEME["accent"],
-            font=("Courier New", 12, "bold"), borderwidth=0, relief="flat",
-            padding=(8, 6))
-        style.map("Treeview",
-            background=[("selected", THEME["accent"])],
-            foreground=[("selected", THEME["bg"])])
-
-    # -- Event handler ---------------------------------------------
+        style.configure("Treeview", background=THEME["panel2"], foreground=THEME["text"], fieldbackground=THEME["panel2"], borderwidth=0, font=("Courier New", 12), rowheight=32)
+        style.configure("Treeview.Heading", background=THEME["panel"], foreground=THEME["accent"], font=("Courier New", 12, "bold"), borderwidth=0, relief="flat", padding=(8, 6))
+        style.map("Treeview", background=[("selected", THEME["accent"])], foreground=[("selected", THEME["bg"])])
 
     def _handle_event(self, event: dict):
         self.db.log_alert(event)
@@ -249,7 +172,6 @@ class FirewallAgentUI:
         ip = event.get("src_ip", "")
         attack = event.get("attack_type", "unknown")
 
-        # Already blocked: refresh timer, record, skip queue
         if self.enforcer.is_blocked(ip):
             self.enforcer.block(ip, attack_type=attack, auto=True)
             self.store.add(event, "ALREADY_BLOCKED")
@@ -268,8 +190,6 @@ class FirewallAgentUI:
 
         self.store.add(event, status)
         self._dirty = True
-
-    # -- Actions ----------------------------------------------------
 
     def _on_alert_double_click(self, _event):
         sel = self.alerts_tree.selection()
@@ -290,10 +210,7 @@ class FirewallAgentUI:
         if not record: return
         ip = record["event"].get("src_ip", "")
 
-        menu = tk.Menu(self.root, tearoff=0,
-                       bg=THEME["panel"], fg=THEME["text"],
-                       activebackground=THEME["accent"], activeforeground=THEME["bg"],
-                       borderwidth=0)
+        menu = tk.Menu(self.root, tearoff=0, bg=THEME["panel"], fg=THEME["text"], activebackground=THEME["accent"], activeforeground=THEME["bg"], borderwidth=0)
         menu.add_command(label="View Details", command=lambda: show_alert_detail(self.root, record))
         menu.add_separator()
         menu.add_command(label=f"Block {ip}",   command=lambda: self._block_ip(ip, record["event"].get("attack_type", "manual")))
@@ -323,10 +240,7 @@ class FirewallAgentUI:
         record = self.store.find(tags[0])
         if not record: return
 
-        menu = tk.Menu(self.root, tearoff=0,
-                       bg=THEME["panel"], fg=THEME["text"],
-                       activebackground=THEME["accent"], activeforeground=THEME["bg"],
-                       borderwidth=0)
+        menu = tk.Menu(self.root, tearoff=0, bg=THEME["panel"], fg=THEME["text"], activebackground=THEME["accent"], activeforeground=THEME["bg"], borderwidth=0)
         menu.add_command(label="View Details", command=lambda: show_alert_detail(self.root, record))
         menu.add_separator()
         menu.add_command(label="Approve", command=self._approve_selected)
@@ -344,10 +258,7 @@ class FirewallAgentUI:
         if not vals: return
         ip = vals[0]
 
-        menu = tk.Menu(self.root, tearoff=0,
-                       bg=THEME["panel"], fg=THEME["text"],
-                       activebackground=THEME["accent"], activeforeground=THEME["bg"],
-                       borderwidth=0)
+        menu = tk.Menu(self.root, tearoff=0, bg=THEME["panel"], fg=THEME["text"], activebackground=THEME["accent"], activeforeground=THEME["bg"], borderwidth=0)
         menu.add_command(label=f"Unblock {ip}", command=lambda: self._unblock_ip(ip))
         menu.add_command(label="Copy IP",       command=lambda: self._copy_to_clipboard(ip))
         try:
@@ -363,6 +274,7 @@ class FirewallAgentUI:
     def _unblock_ip(self, ip: str):
         if self.enforcer.unblock(ip):
             self.db.log_action("unblock", ip, "manual")
+            cloud_hooks.remove_block(ip)
 
     def _copy_to_clipboard(self, text: str):
         self.root.clipboard_clear()
@@ -386,7 +298,6 @@ class FirewallAgentUI:
             self.db.log_action("block", ip, "manual_approve", attack)
             cloud_hooks.push_block(ip, attack, AUTO_UNBLOCK_SECONDS)
 
-        # Auto-resolve other pending alerts for the same IP
         for r in list(self.store.list_pending()):
             if r["event"].get("src_ip") == ip:
                 self.store.dismiss(r["id"])
@@ -405,8 +316,7 @@ class FirewallAgentUI:
     def _dismiss_all(self):
         n = len(self.store.list_pending())
         if n == 0: return
-        if confirm(self.root, "Dismiss All Pending",
-                   f"Dismiss {n} pending alert(s) without action?"):
+        if confirm(self.root, "Dismiss All Pending", f"Dismiss {n} pending alert(s) without action?"):
             self.store.clear_pending()
             self._dirty = True
 
@@ -425,6 +335,7 @@ class FirewallAgentUI:
         if not ip: return
         if self.enforcer.unblock(ip):
             self.db.log_action("unblock", ip, "manual")
+            cloud_hooks.remove_block(ip)
             self.ip_entry.delete(0, "end")
         else:
             info(self.root, "Unblock", f"{ip} is not currently blocked.")
@@ -436,22 +347,20 @@ class FirewallAgentUI:
         ip = self.blocked_tree.item(sel[0])["values"][0]
         if self.enforcer.unblock(ip):
             self.db.log_action("unblock", ip, "manual")
+            cloud_hooks.remove_block(ip)
 
     def _unblock_all(self):
         n = len(self.enforcer.list_blocked())
         if n == 0: return
-        if confirm(self.root, "Unblock All",
-                   f"Release ALL {n} blocked IP(s)?\nThis cannot be undone.", danger=True):
+        if confirm(self.root, "Unblock All", f"Release ALL {n} blocked IP(s)?\nThis cannot be undone.", danger=True):
             for ip, _info in list(self.enforcer.list_blocked()):
                 self.enforcer.unblock(ip)
                 self.db.log_action("unblock", ip, "manual_all")
+                cloud_hooks.remove_block(ip)
             self._dirty = True
 
     def _clear_history(self):
-        if confirm(self.root, "Clear History",
-                   "Wipe ALL alert and action history?\n"
-                   "This deletes the SQLite log permanently.\n"
-                   "(Active blocks are preserved.)", danger=True):
+        if confirm(self.root, "Clear History", "Wipe ALL alert and action history?\nThis deletes the SQLite log permanently.\n(Active blocks are preserved.)", danger=True):
             self.db.close()
             from config import DB_FILE
             try: DB_FILE.unlink()
@@ -463,8 +372,6 @@ class FirewallAgentUI:
     def _mode_changed(self, value):
         self.mode = "auto" if value == "AUTO" else "manual"
 
-    # -- Refresh ----------------------------------------------------
-
     def _mark_dirty(self):
         self._dirty = True
 
@@ -475,15 +382,11 @@ class FirewallAgentUI:
             self._refresh_blocked()
         self._refresh_log()
         self._refresh_ai_status()
-        self._apply_peer_blocks()   # ← Firebase peer sync
+        self._apply_peer_blocks()
         self._dirty = False
         self.root.after(GUI_REFRESH_INTERVAL, self._refresh_loop)
 
     def _apply_peer_blocks(self):
-        """
-        Pull peer-shared blocks from Firebase and apply them locally.
-        Only blocks IPs that are not already blocked and not whitelisted.
-        """
         try:
             peer_ips = cloud_hooks.fetch_blocklist()
             for ip in peer_ips:
@@ -492,9 +395,8 @@ class FirewallAgentUI:
                     if newly:
                         self.db.log_action("block", ip, reason="peer_shared", attack_type="peer_shared")
                         self._mark_dirty()
-                        print(f"[gui] Peer block applied: {ip}")
-        except Exception as e:
-            print(f"[gui] _apply_peer_blocks error: {e}")
+        except Exception:
+            pass
 
     def _refresh_alerts(self):
         sel_id = None
@@ -509,12 +411,8 @@ class FirewallAgentUI:
         for r in self.store.list_recent():
             ev = r["event"]
             iid = self.alerts_tree.insert("", "end", values=(
-                r["ts"],
-                ev.get("src_ip", "?"),
-                ev.get("attack_type", "?"),
-                f"{ev.get('confidence', 0):.2f}",
-                ev.get("detection_source", "?"),
-                r["status"],
+                r["ts"], ev.get("src_ip", "?"), ev.get("attack_type", "?"),
+                f"{ev.get('confidence', 0):.2f}", ev.get("detection_source", "?"), r["status"],
             ), tags=(r["id"],))
             if r["id"] == sel_id:
                 self.alerts_tree.selection_set(iid)
@@ -532,10 +430,7 @@ class FirewallAgentUI:
         for r in self.store.list_pending():
             ev = r["event"]
             iid = self.pending_tree.insert("", "end", values=(
-                r["ts"],
-                ev.get("src_ip", "?"),
-                ev.get("attack_type", "?"),
-                f"{ev.get('confidence', 0):.2f}",
+                r["ts"], ev.get("src_ip", "?"), ev.get("attack_type", "?"), f"{ev.get('confidence', 0):.2f}",
             ), tags=(r["id"],))
             if r["id"] == sel_id:
                 self.pending_tree.selection_set(iid)
@@ -578,8 +473,6 @@ class FirewallAgentUI:
             self.ai_status_lbl.configure(text="\u25cf AI: stale", text_color=THEME["warn"])
         else:
             self.ai_status_lbl.configure(text="\u25cf AI: down",  text_color=THEME["danger"])
-
-    # -- Lifecycle --------------------------------------------------
 
     def _on_close(self):
         try: self.runner.stop()

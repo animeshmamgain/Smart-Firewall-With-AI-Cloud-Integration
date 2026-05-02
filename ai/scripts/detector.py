@@ -176,6 +176,9 @@ def emit_alert(src_ip, predicted_class, confidence, features, source):
         "recommended_action": ACTION_MAP.get(predicted_class, "alert"),
     }
     
+    if EVENTS_PATH.exists() and EVENTS_PATH.stat().st_size > 5 * 1024 * 1024:
+        EVENTS_PATH.write_text("")
+        
     with open(EVENTS_PATH, "a") as f:
         f.write(json.dumps(event) + "\n")
     
@@ -253,7 +256,7 @@ def main():
     
     signal.signal(signal.SIGINT, signal_handler)
     
-    sniffer = AsyncSniffer(iface=INTERFACE, prn=packet_handler, store=False)
+    sniffer = AsyncSniffer(iface=INTERFACE, filter="ip", prn=packet_handler, store=False)
     sniffer.start()
     print(f"[{time.strftime('%H:%M:%S')}] Sniffer started on {INTERFACE}")
     
