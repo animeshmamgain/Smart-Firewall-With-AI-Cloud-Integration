@@ -24,4 +24,4 @@ shared/heartbeat.txt
 agent/logs/
 ai/data/processed/.ipynb_checkpoints/
 ai/scripts/.ipynb_checkpoints/
-!agent/serviceAccountKey.json
+agent/serviceAccountKey.json

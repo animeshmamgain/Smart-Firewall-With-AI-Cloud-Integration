@@ -7,6 +7,7 @@ import threading
 import signal
 from collections import deque
 from pathlib import Path
+import sys
 
 from config import PROJECT_DIR
 from logger import get_logger
@@ -16,8 +17,7 @@ log = get_logger("detector_runner")
 
 class DetectorRunner:
     DETECTOR_SCRIPT = PROJECT_DIR / "ai" / "scripts" / "detector.py"
-    import sys
-PYTHON_BIN      = Path(sys.executable)
+    PYTHON_BIN      = Path(sys.executable)
     LOG_BUFFER_MAX  = 200
 
     def __init__(self, on_log=None):

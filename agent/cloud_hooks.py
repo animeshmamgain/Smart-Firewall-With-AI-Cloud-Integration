@@ -144,7 +144,7 @@ def _on_blocklist_change(event):
             return
 
         if isinstance(data, dict):
-            parts = path.strip("/").split("/")
+            parts = evt_path.strip("/").split("/")
 
             if parts == [""]:
                 # Full /blocklist snapshot on initial connect
@@ -182,15 +182,15 @@ def _on_blocklist_change(event):
 
 
 def _on_peer_blocks_change(event):
+    evt_path = event.path
     try:
         data = event.data
-        path = event.path
 
         if data is None:
             return
 
         if isinstance(data, dict):
-            parts = path.strip("/").split("/")
+            parts = evt_path.strip("/").split("/")
 
             if parts == [""]:
                 for safe_ip, sources in data.items():
