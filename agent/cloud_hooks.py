@@ -313,13 +313,6 @@ def remove_block(ip: str) -> None:
         log.error(f"remove_block failed for {ip}: {e}")
 
 
-def fetch_blocklist() -> list[dict]:
-    with _peer_lock:
-        return [
-            {"ip": safe_ip.replace("_", "."), "attack_type": info["attack_type"]}
-            for safe_ip, info in _peer_ips.items()
-        ]
-
 
 def fetch_all_firebase_ips() -> list[dict]:
     db = _get_db()

@@ -89,27 +89,6 @@ class Database:
             except Exception as e:
                 log.error(f"Failed to log action '{action}' for {ip}: {e}")
 
-    def recent_alerts(self, limit: int = 50):
-        with self._lock:
-            try:
-                rows = self._conn.execute(
-                    "SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)
-                ).fetchall()
-                return [dict(r) for r in rows]
-            except Exception as e:
-                log.error(f"Failed to fetch recent alerts: {e}")
-                return []
-
-    def recent_actions(self, limit: int = 50):
-        with self._lock:
-            try:
-                rows = self._conn.execute(
-                    "SELECT * FROM actions ORDER BY id DESC LIMIT ?", (limit,)
-                ).fetchall()
-                return [dict(r) for r in rows]
-            except Exception as e:
-                log.error(f"Failed to fetch recent actions: {e}")
-                return []
 
     def get_active_blocks(self):
         with self._lock:
@@ -123,16 +102,6 @@ class Database:
                 log.error(f"Failed to fetch active blocks: {e}")
                 return []
 
-    def stats(self) -> dict:
-        with self._lock:
-            try:
-                n_alerts   = self._conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
-                n_blocks   = self._conn.execute("SELECT COUNT(*) FROM actions WHERE action='block'").fetchone()[0]
-                n_unblocks = self._conn.execute("SELECT COUNT(*) FROM actions WHERE action='unblock'").fetchone()[0]
-                return {"alerts": n_alerts, "blocks": n_blocks, "unblocks": n_unblocks}
-            except Exception as e:
-                log.error(f"Failed to fetch stats: {e}")
-                return {"alerts": 0, "blocks": 0, "unblocks": 0}
 
     def close(self):
         with self._lock:

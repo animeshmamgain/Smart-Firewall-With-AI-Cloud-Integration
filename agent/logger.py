@@ -1,46 +1,15 @@
-"""
-logger.py — Shared logging setup for the SFW agent.
+import sys
+from datetime import datetime
 
-All modules import get_logger() from here. Logs go to:
-  - Console (stdout) with colour-coded levels
-  - agent/logs/agent.log (rotating, max 2 MB x 3 files)
-"""
+class _SimpleLogger:
+    def __init__(self, name):
+        self.name = name
+    def _log(self, level, msg):
+        print(f"{datetime.now().strftime('%H:%M:%S')}  {level:8s}  {self.name:20s}  {msg}", flush=True)
+    def info(self, msg):    self._log("INFO",    msg)
+    def warning(self, msg): self._log("WARNING", msg)
+    def error(self, msg):   self._log("ERROR",   msg)
+    def debug(self, msg):   pass
 
-import logging
-import logging.handlers
-from pathlib import Path
-
-LOG_DIR  = Path(__file__).resolve().parent / "logs"
-LOG_FILE = LOG_DIR / "agent.log"
-
-_configured = False
-
-def get_logger(name: str) -> logging.Logger:
-    global _configured
-    if not _configured:
-        _configured = True
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-        fmt = logging.Formatter(
-            fmt="%(asctime)s  %(levelname)-8s  %(name)-20s  %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-
-        # Rotating file handler — 2 MB per file, keep 3 backups
-        fh = logging.handlers.RotatingFileHandler(
-            LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
-        )
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(fmt)
-
-        # Console handler
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        ch.setFormatter(fmt)
-
-        root = logging.getLogger("sfw")
-        root.setLevel(logging.DEBUG)
-        root.addHandler(fh)
-        root.addHandler(ch)
-
-    return logging.getLogger(f"sfw.{name}")
+def get_logger(name):
+    return _SimpleLogger(f"sfw.{name}")
