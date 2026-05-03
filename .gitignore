@@ -1,6 +1,4 @@
 # Secrets — never commit these
-.env
-agent/serviceAccountKey.json
 *.json
 
 # Python
