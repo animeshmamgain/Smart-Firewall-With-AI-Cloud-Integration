@@ -422,12 +422,14 @@ class FirewallAgentUI:
 
     def _apply_peer_blocks(self):
         try:
-            peer_ips = cloud_hooks.fetch_blocklist()
-            for ip in peer_ips:
+            peer_entries = cloud_hooks.fetch_blocklist()
+            for entry in peer_entries:
+                ip = entry["ip"]
+                attack_type = entry.get("attack_type", "peer_shared")
                 if not self.enforcer.is_blocked(ip):
-                    newly = self.enforcer.block(ip, attack_type="peer_shared", auto=True)
+                    newly = self.enforcer.block(ip, attack_type=attack_type, auto=True)
                     if newly:
-                        self.db.log_action("block", ip, reason="peer_shared", attack_type="peer_shared")
+                        self.db.log_action("block", ip, reason="peer_shared", attack_type=attack_type)
                         self._mark_dirty()
         except Exception:
             pass
