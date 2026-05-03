@@ -16,7 +16,8 @@ log = get_logger("detector_runner")
 
 class DetectorRunner:
     DETECTOR_SCRIPT = PROJECT_DIR / "ai" / "scripts" / "detector.py"
-    PYTHON_BIN      = PROJECT_DIR / "venv" / "bin" / "python3"
+    import sys
+PYTHON_BIN      = Path(sys.executable)
     LOG_BUFFER_MAX  = 200
 
     def __init__(self, on_log=None):

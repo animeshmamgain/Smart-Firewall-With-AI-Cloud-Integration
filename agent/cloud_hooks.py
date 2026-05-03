@@ -91,27 +91,56 @@ def _handle_new_ip(ip: str, attack_type: str, node_id: str):
 def _on_blocklist_change(event):
     """
     Listener on /blocklist.
-    Fires whenever ANY client writes a new block entry.
+    Fires whenever ANY client writes a new block entry or removes one.
+    Rebuilt to handle all Firebase event shapes reliably.
     """
     try:
         data = event.data
-        path = event.path  # e.g. "/Animesh/1_1_1_1" or "/"
+        evt_path = event.path
 
         if data is None:
-            # A block was removed — remove from peer cache too
-            parts = path.strip("/").split("/")
+            # Deletion event — could be /cid/safe_ip or /cid or /
+            parts = evt_path.strip("/").split("/")
+            parts = [p for p in parts if p]
+
             if len(parts) == 2:
+                # Single IP removed: /cid/safe_ip
                 _cid, safe_ip = parts
                 ip = safe_ip.replace("_", ".")
                 with _peer_lock:
                     _peer_ips.pop(safe_ip, None)
-                
-                # TRIGGER GUI UNBLOCK CALLBACK
-                if on_peer_unblock:
-                    try:
-                        on_peer_unblock(ip)
-                    except Exception as e:
-                        log.warning(f"on_peer_unblock callback error: {e}")
+                cb = on_peer_unblock
+                if cb:
+                    try: cb(ip)
+                    except Exception as e: log.warning(f"on_peer_unblock error: {e}")
+
+            elif len(parts) == 1:
+                # Entire client subtree removed
+                cid = parts[0]
+                if cid != CLIENT_ID:
+                    with _peer_lock:
+                        to_remove = [k for k, v in _peer_ips.items()
+                                     if v.get("node_id") == cid]
+                    for safe_ip in to_remove:
+                        ip = safe_ip.replace("_", ".")
+                        with _peer_lock:
+                            _peer_ips.pop(safe_ip, None)
+                        cb = on_peer_unblock
+                        if cb:
+                            try: cb(ip)
+                            except Exception as e: log.warning(f"on_peer_unblock error: {e}")
+
+            elif len(parts) == 0:
+                # Full blocklist cleared — unblock everything from peers
+                with _peer_lock:
+                    all_safe = list(_peer_ips.keys())
+                    _peer_ips.clear()
+                cb = on_peer_unblock
+                if cb:
+                    for safe_ip in all_safe:
+                        ip = safe_ip.replace("_", ".")
+                        try: cb(ip)
+                        except Exception as e: log.warning(f"on_peer_unblock error: {e}")
             return
 
         if isinstance(data, dict):
@@ -220,7 +249,7 @@ def _start_poll_fallback():
                                 _handle_new_ip(ip, attack, cid)
             except Exception as e:
                 log.warning(f"Poll fallback error: {e}")
-            time.sleep(3)
+            time.sleep(10)
 
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
