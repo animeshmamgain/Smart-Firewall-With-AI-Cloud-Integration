@@ -19,9 +19,17 @@ CLIENT_ID = os.getenv("SFW_CLIENT_ID", socket.gethostname())
 
 _db        = None
 _init_lock = threading.Lock()
-_peer_ips  = {}          # ip -> {"attack_type": str, "blocked_at": float}
+
+# In-memory peer state (safe_ip -> info dict)
+_peer_ips  = {}
 _peer_lock = threading.Lock()
-_listener  = None        # Firebase streaming listener handle
+
+# Callbacks fired instantly when a peer blocks/unblocks an IP
+on_new_peer_block = None   # callable(ip: str, attack_type: str, node_id: str)
+on_peer_unblock   = None   # callable(ip: str)
+
+_blocklist_listener  = None
+_peer_blocks_listener = None
 
 # ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -46,92 +54,173 @@ def _get_db():
                 cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
                 firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DATABASE_URL})
             _db = firebase_db
-            _start_realtime_listener()
+            _start_realtime_listeners()
             log.info(f"Firebase connected (client_id={CLIENT_ID})")
             return _db
         except Exception as e:
             log.error(f"Firebase init failed: {e}")
             return None
 
-# ── Real-time listener (instant updates) ─────────────────────────────────────
+# ── Real-time listeners ───────────────────────────────────────────────────────
 
-def _on_peer_blocks_change(event):
+def _handle_new_ip(ip: str, attack_type: str, node_id: str):
     """
-    Called instantly by Firebase whenever /peer_blocks changes.
-    event.data is the full snapshot of /peer_blocks or a sub-path update.
+    Called from any listener when a peer IP is discovered.
+    Updates in-memory state and fires the GUI callback instantly.
+    """
+    safe_ip = ip.replace(".", "_")
+    with _peer_lock:
+        if safe_ip in _peer_ips:
+            return   # already known, no need to fire again
+        _peer_ips[safe_ip] = {
+            "attack_type": attack_type,
+            "blocked_at":  time.time(),
+            "node_id": node_id
+        }
+
+    log.info(f"Real-time: new peer block detected → {ip} ({attack_type}) by {node_id}")
+
+    cb = on_new_peer_block
+    if cb:
+        try:
+            cb(ip, attack_type, node_id)
+        except Exception as e:
+            log.warning(f"on_new_peer_block callback error: {e}")
+
+
+def _on_blocklist_change(event):
+    """
+    Listener on /blocklist.
+    Fires whenever ANY client writes a new block entry.
     """
     try:
         data = event.data
-        new_peers = {}
+        path = event.path  # e.g. "/Animesh/1_1_1_1" or "/"
 
         if data is None:
-            # All peer blocks cleared
-            with _peer_lock:
-                _peer_ips.clear()
-            log.info("Peer blocks cleared (real-time)")
+            # A block was removed — remove from peer cache too
+            parts = path.strip("/").split("/")
+            if len(parts) == 2:
+                _cid, safe_ip = parts
+                ip = safe_ip.replace("_", ".")
+                with _peer_lock:
+                    _peer_ips.pop(safe_ip, None)
+                
+                # TRIGGER GUI UNBLOCK CALLBACK
+                if on_peer_unblock:
+                    try:
+                        on_peer_unblock(ip)
+                    except Exception as e:
+                        log.warning(f"on_peer_unblock callback error: {e}")
             return
 
         if isinstance(data, dict):
-            for safe_ip, sources in data.items():
-                if not isinstance(sources, dict):
-                    continue
-                # Only add if another peer (not us) has this blocked
-                for cid, info in sources.items():
+            parts = path.strip("/").split("/")
+
+            if parts == [""]:
+                # Full /blocklist snapshot on initial connect
+                for cid, ips in data.items():
+                    if cid == CLIENT_ID:
+                        continue
+                    if not isinstance(ips, dict):
+                        continue
+                    for safe_ip, info in ips.items():
+                        ip = safe_ip.replace("_", ".")
+                        attack = info.get("attack_type", "peer_shared") if isinstance(info, dict) else "peer_shared"
+                        _handle_new_ip(ip, attack, cid)
+
+            elif len(parts) == 1:
+                # A single client's full sub-tree: data = {safe_ip: info, ...}
+                cid = parts[0]
+                if cid == CLIENT_ID:
+                    return
+                for safe_ip, info in data.items():
+                    ip = safe_ip.replace("_", ".")
+                    attack = info.get("attack_type", "peer_shared") if isinstance(info, dict) else "peer_shared"
+                    _handle_new_ip(ip, attack, cid)
+
+            elif len(parts) == 2:
+                # Single IP record written: /cid/safe_ip → info dict
+                cid, safe_ip = parts
+                if cid == CLIENT_ID:
+                    return
+                ip = safe_ip.replace("_", ".")
+                attack = data.get("attack_type", "peer_shared") if isinstance(data, dict) else "peer_shared"
+                _handle_new_ip(ip, attack, cid)
+
+    except Exception as e:
+        log.warning(f"_on_blocklist_change error: {e}")
+
+
+def _on_peer_blocks_change(event):
+    try:
+        data = event.data
+        path = event.path
+
+        if data is None:
+            return
+
+        if isinstance(data, dict):
+            parts = path.strip("/").split("/")
+
+            if parts == [""]:
+                for safe_ip, sources in data.items():
+                    if not isinstance(sources, dict):
+                        continue
+                    for cid, info in sources.items():
+                        if cid != CLIENT_ID:
+                            ip = safe_ip.replace("_", ".")
+                            attack = info.get("attack_type", "peer_shared") if isinstance(info, dict) else "peer_shared"
+                            _handle_new_ip(ip, attack, cid)
+                            break
+
+            elif len(parts) == 1:
+                safe_ip = parts[0]
+                for cid, info in data.items():
                     if cid != CLIENT_ID:
-                        new_peers[safe_ip] = {
-                            "attack_type": info.get("attack_type", "peer_shared"),
-                            "blocked_at":  info.get("blocked_at", time.time()),
-                        }
+                        ip = safe_ip.replace("_", ".")
+                        attack = info.get("attack_type", "peer_shared") if isinstance(info, dict) else "peer_shared"
+                        _handle_new_ip(ip, attack, cid)
                         break
 
-        with _peer_lock:
-            _peer_ips.clear()
-            _peer_ips.update(new_peers)
-
-        if new_peers:
-            log.info(f"Real-time peer update: {len(new_peers)} IPs from peers")
-
     except Exception as e:
-        log.warning(f"Real-time listener error: {e}")
+        log.warning(f"_on_peer_blocks_change error: {e}")
 
 
-def _start_realtime_listener():
-    """Attach a Firebase streaming listener to /peer_blocks."""
-    global _listener
+def _start_realtime_listeners():
+    global _blocklist_listener, _peer_blocks_listener
     try:
-        ref = _db.reference("/peer_blocks")
-        _listener = ref.listen(_on_peer_blocks_change)
-        log.info("Real-time peer_blocks listener attached")
+        _blocklist_listener = _db.reference("/blocklist").listen(_on_blocklist_change)
+        log.info("Real-time /blocklist listener attached")
     except Exception as e:
-        log.warning(f"Could not attach real-time listener: {e} — falling back to polling")
+        log.warning(f"Could not attach /blocklist listener: {e} — starting poll fallback")
         _start_poll_fallback()
+
+    try:
+        _peer_blocks_listener = _db.reference("/peer_blocks").listen(_on_peer_blocks_change)
+        log.info("Real-time /peer_blocks listener attached")
+    except Exception as e:
+        log.warning(f"Could not attach /peer_blocks listener: {e}")
 
 
 def _start_poll_fallback():
-    """Fallback polling every 5s if streaming listener fails."""
     def _loop():
         while True:
             try:
                 db = _get_db()
                 if db:
-                    snap = db.reference("/peer_blocks").get()
-                    new_peers = {}
-                    if snap:
-                        for safe_ip, sources in snap.items():
-                            if isinstance(sources, dict):
-                                for cid, info in sources.items():
-                                    if cid != CLIENT_ID:
-                                        new_peers[safe_ip] = {
-                                            "attack_type": info.get("attack_type", "peer_shared"),
-                                            "blocked_at":  info.get("blocked_at", time.time()),
-                                        }
-                                        break
-                    with _peer_lock:
-                        _peer_ips.clear()
-                        _peer_ips.update(new_peers)
+                    snap = db.reference("/blocklist").get()
+                    if snap and isinstance(snap, dict):
+                        for cid, ips in snap.items():
+                            if cid == CLIENT_ID or not isinstance(ips, dict):
+                                continue
+                            for safe_ip, info in ips.items():
+                                ip = safe_ip.replace("_", ".")
+                                attack = info.get("attack_type", "peer_shared") if isinstance(info, dict) else "peer_shared"
+                                _handle_new_ip(ip, attack, cid)
             except Exception as e:
-                log.warning(f"Peer poll error: {e}")
-            time.sleep(5)
+                log.warning(f"Poll fallback error: {e}")
+            time.sleep(3)
 
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
@@ -157,7 +246,7 @@ def push_alert(event: dict) -> None:
         log.error(f"push_alert failed: {e}")
 
 
-def push_block(ip: str, attack_type: str, duration: int) -> None:
+def push_block(ip: str, attack_type: str, duration: int = 0) -> None:
     db = _get_db()
     if not db:
         return
@@ -188,18 +277,60 @@ def remove_block(ip: str) -> None:
         safe_ip = ip.replace(".", "_")
         db.reference(f"/blocklist/{CLIENT_ID}/{safe_ip}").delete()
         db.reference(f"/peer_blocks/{safe_ip}/{CLIENT_ID}").delete()
+        with _peer_lock:
+            _peer_ips.pop(safe_ip, None)
         log.info(f"Removed block for {ip} from Firebase")
     except Exception as e:
         log.error(f"remove_block failed for {ip}: {e}")
 
 
 def fetch_blocklist() -> list[dict]:
-    """
-    Returns list of dicts: [{"ip": "1.2.3.4", "attack_type": "port_scan"}, ...]
-    Called by gui._apply_peer_blocks every second.
-    """
     with _peer_lock:
         return [
             {"ip": safe_ip.replace("_", "."), "attack_type": info["attack_type"]}
             for safe_ip, info in _peer_ips.items()
         ]
+
+
+def fetch_all_firebase_ips() -> list[dict]:
+    db = _get_db()
+    if not db:
+        return []
+
+    results = {}
+
+    try:
+        blocklist_snap = db.reference("/blocklist").get()
+        if blocklist_snap and isinstance(blocklist_snap, dict):
+            for client_id, ips in blocklist_snap.items():
+                if not isinstance(ips, dict):
+                    continue
+                for safe_ip, info in ips.items():
+                    ip = safe_ip.replace("_", ".")
+                    if ip not in results:
+                        results[ip] = {
+                            "ip": ip,
+                            "attack_type": info.get("attack_type", "cloud_restore") if isinstance(info, dict) else "cloud_restore",
+                            "node_id": client_id, # <-- FIX: Now passes the Node ID!
+                        }
+    except Exception as e:
+        log.warning(f"fetch_all_firebase_ips: blocklist read failed: {e}")
+
+    try:
+        peer_snap = db.reference("/peer_blocks").get()
+        if peer_snap and isinstance(peer_snap, dict):
+            for safe_ip, sources in peer_snap.items():
+                ip = safe_ip.replace("_", ".")
+                if ip not in results and isinstance(sources, dict):
+                    for cid, info in sources.items():
+                        results[ip] = {
+                            "ip": ip,
+                            "attack_type": info.get("attack_type", "peer_shared") if isinstance(info, dict) else "peer_shared",
+                            "node_id": cid, # <-- FIX: Now passes the Node ID!
+                        }
+                        break
+    except Exception as e:
+        log.warning(f"fetch_all_firebase_ips: peer_blocks read failed: {e}")
+
+    log.info(f"fetch_all_firebase_ips: loaded {len(results)} IPs from Firebase")
+    return list(results.values())

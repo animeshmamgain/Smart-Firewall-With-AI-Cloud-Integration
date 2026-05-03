@@ -3,7 +3,8 @@ import tkinter as tk
 import customtkinter as ctk
 from tkinter import ttk
 
-from config            import THEME, DEFAULT_MODE, AUTO_UNBLOCK_SECONDS, GUI_REFRESH_INTERVAL
+# Importing NODE_ID from config (which reads from your .env file)
+from config            import THEME, DEFAULT_MODE, GUI_REFRESH_INTERVAL, NODE_ID
 from enforcer          import Enforcer
 from event_consumer    import EventConsumer
 from database          import Database
@@ -17,6 +18,9 @@ class FirewallAgentUI:
     def __init__(self):
         self.mode   = DEFAULT_MODE
         self._dirty = True
+        
+        # Dictionary to track which node blocked which IP
+        self.block_sources = {}
 
         self.db        = Database()
         self.enforcer  = Enforcer(on_change=self._mark_dirty)
@@ -34,8 +38,13 @@ class FirewallAgentUI:
         self._build_ui()
         self._configure_treeview_style()
 
+        # Register real-time peer callbacks BEFORE syncing
+        cloud_hooks.on_new_peer_block = self._on_realtime_peer_block
+        cloud_hooks.on_peer_unblock   = self._on_realtime_peer_unblock  
+
         # SYNC STATE ON STARTUP
-        self._sync_existing_blocks()
+        # Added a 150ms delay so the UI finishes drawing before fetching data (fixes the visual glitch)
+        self.root.after(150, self._sync_existing_blocks)
 
         self.consumer.start()
         self.runner.start()
@@ -43,18 +52,42 @@ class FirewallAgentUI:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _sync_existing_blocks(self):
-        active_blocks = self.db.get_active_blocks()
-        now = time.time()
-        for record in active_blocks:
-            elapsed = now - record["at"]
-            if elapsed < AUTO_UNBLOCK_SECONDS:
-                # Still active, tell enforcer to restore it into RAM and OS iptables
-                self.enforcer.block(record["ip"], attack_type=record["attack_type"], auto=True)
-            else:
-                # Expired while agent was closed. Clean it up safely.
-                self.enforcer.unblock(record["ip"])
-                self.db.log_action("unblock", record["ip"], "expired_offline")
-                cloud_hooks.remove_block(record["ip"])
+        """
+        Treats Firebase as the absolute master list on startup.
+        Matches local firewall state exactly to the cloud hive mind.
+        """
+        try:
+            firebase_ips = cloud_hooks.fetch_all_firebase_ips()
+            firebase_ip_set = {entry["ip"] for entry in firebase_ips}
+            
+            # 1. Block anything in Firebase that isn't blocked locally yet
+            for entry in firebase_ips:
+                ip = entry["ip"]
+                attack_type = entry.get("attack_type", "cloud_restore")
+                # Track who blocked it (fallback to Cloud Network if node_id missing)
+                self.block_sources[ip] = entry.get("node_id", "Cloud Network")
+                
+                if not self.enforcer.is_blocked(ip):
+                    if self.enforcer.block(ip, attack_type=attack_type, auto=True):
+                        self.db.log_action("block", ip, "cloud_restore", attack_type)
+
+            # 2. Unblock anything locally that is NOT in Firebase (peer unblocked it while offline)
+            for ip, _info in list(self.enforcer.list_blocked()):
+                if ip not in firebase_ip_set:
+                    if self.enforcer.unblock(ip):
+                        self.block_sources.pop(ip, None)
+                        self.db.log_action("unblock", ip, "cloud_sync_removed")
+
+        except Exception as e:
+            print(f"[gui] Firebase startup sync error: {e}")
+            # Fallback to local DB blocks if completely offline
+            active_blocks = self.db.get_active_blocks()
+            for record in active_blocks:
+                self.block_sources[record["ip"]] = NODE_ID
+                if not self.enforcer.is_blocked(record["ip"]):
+                    self.enforcer.block(record["ip"], attack_type=record["attack_type"], auto=True)
+
+        self._dirty = True
 
     def _build_ui(self):
         self._build_header()
@@ -65,7 +98,10 @@ class FirewallAgentUI:
         hdr = ctk.CTkFrame(self.root, fg_color=THEME["panel"], border_color=THEME["accent"], border_width=1, corner_radius=0, height=60)
         hdr.pack(fill="x"); hdr.pack_propagate(False)
 
-        ctk.CTkLabel(hdr, text="\u25c6 SMART FIREWALL AGENT", font=("Courier New", 20, "bold"), text_color=THEME["accent"]).pack(side="left", padx=22)
+        ctk.CTkLabel(hdr, text="\u25c6 SMART FIREWALL AGENT", font=("Courier New", 20, "bold"), text_color=THEME["accent"]).pack(side="left", padx=(22, 10))
+        
+        # Node ID Label displaying the variable loaded from .env
+        ctk.CTkLabel(hdr, text=f"|  NODE ID: {NODE_ID}", font=("Courier New", 14, "bold"), text_color=THEME["ok"]).pack(side="left", padx=10)
 
         self.ai_status_lbl = ctk.CTkLabel(hdr, text="\u25cf AI: starting...", font=("Courier New", 12, "bold"), text_color=THEME["text_dim"])
         self.ai_status_lbl.pack(side="right", padx=20)
@@ -90,11 +126,10 @@ class FirewallAgentUI:
         )
         self.tabs.pack(fill="both", expand=True, padx=14, pady=10)
 
-        for name in ("ALERTS", "PENDING", "BLOCKED", "DETECTOR"):
+        for name in ("ALERTS", "BLOCKED", "DETECTOR"):
             self.tabs.add(name)
 
         self._build_alerts_tab(self.tabs.tab("ALERTS"))
-        self._build_pending_tab(self.tabs.tab("PENDING"))
         self._build_blocked_tab(self.tabs.tab("BLOCKED"))
         self._build_detector_tab(self.tabs.tab("DETECTOR"))
 
@@ -114,31 +149,11 @@ class FirewallAgentUI:
 
         make_label(parent, "  Tip: double-click for details   |   right-click for more actions", color=THEME["text_dim"], font=("Courier New", 11)).pack(fill="x", padx=18, pady=(0, 12))
 
-    def _build_pending_tab(self, parent):
-        cols = ("time", "src_ip", "attack", "conf")
-        widths   = {"time": 140, "src_ip": 220, "attack": 260, "conf": 140}
-        anchors  = {"time": "center", "src_ip": "w", "attack": "w", "conf": "center"}
-        headings = {"time": "TIME", "src_ip": "SOURCE IP", "attack": "ATTACK", "conf": "CONFIDENCE"}
-        self.pending_tree = ttk.Treeview(parent, columns=cols, show="headings", height=14)
-        for c in cols:
-            self.pending_tree.heading(c, text=headings[c], anchor=anchors[c])
-            self.pending_tree.column(c, width=widths[c], anchor=anchors[c])
-        self.pending_tree.pack(fill="both", expand=True, padx=14, pady=14)
-
-        self.pending_tree.bind("<Double-Button-1>", self._on_pending_double_click)
-        self.pending_tree.bind("<Button-3>", self._on_pending_right_click)
-
-        action_row = ctk.CTkFrame(parent, fg_color="transparent")
-        action_row.pack(fill="x", padx=16, pady=(0, 14))
-        make_button(action_row, "\u2713 APPROVE",     self._approve_selected, color=THEME["ok"]).pack(side="left", padx=4)
-        make_button(action_row, "\u2717 DISMISS",     self._dismiss_selected, color=THEME["text_dim"]).pack(side="left", padx=4)
-        make_button(action_row, "DISMISS ALL",        self._dismiss_all,      color=THEME["text_dim"]).pack(side="right", padx=4)
-
     def _build_blocked_tab(self, parent):
-        cols = ("ip", "attack", "type", "remaining")
-        widths   = {"ip": 220, "attack": 240, "type": 160, "remaining": 160}
-        anchors  = {"ip": "w", "attack": "w", "type": "center", "remaining": "center"}
-        headings = {"ip": "IP ADDRESS", "attack": "ATTACK", "type": "BLOCKED BY", "remaining": "REMAINING"}
+        cols = ("ip", "attack", "type")
+        widths   = {"ip": 280, "attack": 300, "type": 200}
+        anchors  = {"ip": "w", "attack": "w", "type": "center"}
+        headings = {"ip": "IP ADDRESS", "attack": "ATTACK", "type": "BLOCKED BY"}
         self.blocked_tree = ttk.Treeview(parent, columns=cols, show="headings", height=14)
         for c in cols:
             self.blocked_tree.heading(c, text=headings[c], anchor=anchors[c])
@@ -162,19 +177,24 @@ class FirewallAgentUI:
         self.log_text.configure(state="disabled")
 
     def _build_footer(self):
-        footer = ctk.CTkFrame(self.root, fg_color=THEME["panel"], border_color=THEME["border"], border_width=1, corner_radius=0, height=64)
+        # Taller footer (height 100)
+        footer = ctk.CTkFrame(self.root, fg_color=THEME["panel"], border_color=THEME["border"], border_width=1, corner_radius=0, height=100)
         footer.pack(fill="x", side="bottom"); footer.pack_propagate(False)
 
-        make_label(footer, "  Quick block:", color=THEME["text_dim"], font=("Courier New", 11)).pack(side="left", padx=(16, 6))
+        # Inner container to perfectly center elements vertically
+        content = ctk.CTkFrame(footer, fg_color="transparent")
+        content.pack(expand=True, fill="x", padx=16)
 
-        self.ip_entry = make_entry(footer, "Enter IP, e.g. 192.168.1.50", width=240)
+        make_label(content, "  Quick block:", color=THEME["text_dim"], font=("Courier New", 11)).pack(side="left", padx=(16, 6))
+
+        self.ip_entry = make_entry(content, "Enter IP, e.g. 192.168.1.50", width=240)
         self.ip_entry.pack(side="left", padx=4)
         self.ip_entry.bind("<Return>", lambda e: self._manual_block())
 
-        make_button(footer, "\U0001F512 BLOCK",   self._manual_block,   color=THEME["danger"], width=110).pack(side="left", padx=4)
-        make_button(footer, "\U0001F513 UNBLOCK", self._manual_unblock, color=THEME["ok"],     width=110).pack(side="left", padx=4)
+        make_button(content, "\U0001F512 BLOCK",   self._manual_block,   color=THEME["danger"], width=110).pack(side="left", padx=4)
+        make_button(content, "\U0001F513 UNBLOCK", self._manual_unblock, color=THEME["ok"],     width=110).pack(side="left", padx=4)
 
-        make_button(footer, "CLEAR HISTORY", self._clear_history, color=THEME["text_dim"], width=130).pack(side="right", padx=14)
+        make_button(content, "CLEAR HISTORY", self._clear_history, color=THEME["text_dim"], width=130).pack(side="right", padx=14)
 
     def _configure_treeview_style(self):
         style = ttk.Style(); style.theme_use("default")
@@ -195,18 +215,46 @@ class FirewallAgentUI:
             self._dirty = True
             return
 
+        # Respect Manual Mode for Local Detections
         if self.mode == "auto":
             if self.enforcer.block(ip, attack_type=attack, auto=True):
                 self.db.log_action("block", ip, "auto", attack)
-                cloud_hooks.push_block(ip, attack, AUTO_UNBLOCK_SECONDS)
+                cloud_hooks.push_block(ip, attack, 0)
+                self.block_sources[ip] = NODE_ID  # Assigned to local node
                 status = "BLOCKED"
             else:
                 status = "EXISTING"
         else:
-            status = "PENDING"
+            status = "PENDING_MANUAL"
 
         self.store.add(event, status)
         self._dirty = True
+
+    def _on_realtime_peer_block(self, ip: str, attack_type: str, node_id: str):
+        """Called instantly from Firebase background thread when peer blocks."""
+        self.root.after(0, self._apply_realtime_peer_block, ip, attack_type, node_id)
+
+    def _apply_realtime_peer_block(self, ip: str, attack_type: str, node_id: str):
+        """Runs on main thread — enforces blocks immediately, ignoring local mode toggle."""
+        if self.enforcer.is_blocked(ip):
+            return
+        if self.enforcer.block(ip, attack_type=attack_type, auto=True):
+            self.db.log_action("block", ip, "peer_realtime", attack_type)
+            self.block_sources[ip] = node_id # Update the UI table instantly
+            self._dirty = True
+
+    def _on_realtime_peer_unblock(self, ip: str):
+        """Called instantly from Firebase background thread when a peer unblocks."""
+        self.root.after(0, self._apply_realtime_peer_unblock, ip)
+
+    def _apply_realtime_peer_unblock(self, ip: str):
+        """Runs on main thread — unblocks immediately, staying in perfect sync."""
+        if not self.enforcer.is_blocked(ip):
+            return
+        if self.enforcer.unblock(ip):
+            self.block_sources.pop(ip, None)
+            self.db.log_action("unblock", ip, "peer_realtime_unblock")
+            self._dirty = True
 
     def _on_alert_double_click(self, _event):
         sel = self.alerts_tree.selection()
@@ -230,38 +278,13 @@ class FirewallAgentUI:
         menu = tk.Menu(self.root, tearoff=0, bg=THEME["panel"], fg=THEME["text"], activebackground=THEME["accent"], activeforeground=THEME["bg"], borderwidth=0)
         menu.add_command(label="View Details", command=lambda: show_alert_detail(self.root, record))
         menu.add_separator()
-        menu.add_command(label=f"Block {ip}",   command=lambda: self._block_ip(ip, record["event"].get("attack_type", "manual")))
+        
+        # Use exact attack name derived from alert record
+        attack_name = record["event"].get("attack_type", "manual")
+        menu.add_command(label=f"Block {ip}",   command=lambda: self._block_ip(ip, attack_name))
         menu.add_command(label=f"Unblock {ip}", command=lambda: self._unblock_ip(ip))
         menu.add_separator()
         menu.add_command(label="Copy IP", command=lambda: self._copy_to_clipboard(ip))
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
-
-    def _on_pending_double_click(self, _event):
-        sel = self.pending_tree.selection()
-        if not sel: return
-        tags = self.pending_tree.item(sel[0])["tags"]
-        if not tags: return
-        record = self.store.find(tags[0])
-        if record:
-            show_alert_detail(self.root, record)
-
-    def _on_pending_right_click(self, event):
-        row = self.pending_tree.identify_row(event.y)
-        if not row: return
-        self.pending_tree.selection_set(row)
-        tags = self.pending_tree.item(row)["tags"]
-        if not tags: return
-        record = self.store.find(tags[0])
-        if not record: return
-
-        menu = tk.Menu(self.root, tearoff=0, bg=THEME["panel"], fg=THEME["text"], activebackground=THEME["accent"], activeforeground=THEME["bg"], borderwidth=0)
-        menu.add_command(label="View Details", command=lambda: show_alert_detail(self.root, record))
-        menu.add_separator()
-        menu.add_command(label="Approve", command=self._approve_selected)
-        menu.add_command(label="Dismiss", command=self._dismiss_selected)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -286,57 +309,20 @@ class FirewallAgentUI:
     def _block_ip(self, ip: str, attack: str = "manual"):
         if self.enforcer.block(ip, attack_type=attack, auto=False):
             self.db.log_action("block", ip, "manual", attack)
-            cloud_hooks.push_block(ip, attack, AUTO_UNBLOCK_SECONDS)
+            cloud_hooks.push_block(ip, attack, 0)
+            self.block_sources[ip] = NODE_ID # Mark ownership to local node
+            self._dirty = True
 
     def _unblock_ip(self, ip: str):
         if self.enforcer.unblock(ip):
             self.db.log_action("unblock", ip, "manual")
             cloud_hooks.remove_block(ip)
+            self.block_sources.pop(ip, None)
+            self._dirty = True
 
     def _copy_to_clipboard(self, text: str):
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
-
-    def _approve_selected(self):
-        sel = self.pending_tree.selection()
-        if not sel:
-            info(self.root, "Approve", "Select a pending alert first."); return
-        tags = self.pending_tree.item(sel[0])["tags"]
-        if not tags: return
-        record = self.store.find(tags[0])
-        if not record: return
-
-        ev = record["event"]
-        ip = ev.get("src_ip", "")
-        attack = ev.get("attack_type", "unknown")
-
-        self.store.approve(tags[0])
-        if self.enforcer.block(ip, attack_type=attack, auto=False):
-            self.db.log_action("block", ip, "manual_approve", attack)
-            cloud_hooks.push_block(ip, attack, AUTO_UNBLOCK_SECONDS)
-
-        for r in list(self.store.list_pending()):
-            if r["event"].get("src_ip") == ip:
-                self.store.dismiss(r["id"])
-
-        self._dirty = True
-
-    def _dismiss_selected(self):
-        sel = self.pending_tree.selection()
-        if not sel:
-            info(self.root, "Dismiss", "Select a pending alert first."); return
-        tags = self.pending_tree.item(sel[0])["tags"]
-        if not tags: return
-        self.store.dismiss(tags[0])
-        self._dirty = True
-
-    def _dismiss_all(self):
-        n = len(self.store.list_pending())
-        if n == 0: return
-        if confirm(self.root, "Dismiss All Pending", f"Dismiss {n} pending alert(s) without action?"):
-            self.store.clear_pending()
-            self._dirty = True
-
 
     def _is_valid_ip(self, ip: str) -> bool:
         """Return True if ip is a valid IPv4 address."""
@@ -354,10 +340,14 @@ class FirewallAgentUI:
         if not self._is_valid_ip(ip):
             info(self.root, "Invalid IP", f"'{ip}' is not a valid IPv4 address.\nExample: 192.168.1.50")
             return
-        if self.enforcer.block(ip, attack_type="manual", auto=False):
-            self.db.log_action("block", ip, "manual")
-            cloud_hooks.push_block(ip, "manual", AUTO_UNBLOCK_SECONDS)
+            
+        # Passing explicitly "quick block" as attack name when using the footer UI
+        if self.enforcer.block(ip, attack_type="quick block", auto=False):
+            self.db.log_action("block", ip, "quick block")
+            cloud_hooks.push_block(ip, "quick block", 0)
+            self.block_sources[ip] = NODE_ID
             self.ip_entry.delete(0, "end")
+            self._dirty = True
         else:
             info(self.root, "Block", f"Could not block {ip}.\nAlready blocked or whitelisted.")
 
@@ -367,7 +357,9 @@ class FirewallAgentUI:
         if self.enforcer.unblock(ip):
             self.db.log_action("unblock", ip, "manual")
             cloud_hooks.remove_block(ip)
+            self.block_sources.pop(ip, None)
             self.ip_entry.delete(0, "end")
+            self._dirty = True
         else:
             info(self.root, "Unblock", f"{ip} is not currently blocked.")
 
@@ -379,6 +371,8 @@ class FirewallAgentUI:
         if self.enforcer.unblock(ip):
             self.db.log_action("unblock", ip, "manual")
             cloud_hooks.remove_block(ip)
+            self.block_sources.pop(ip, None)
+            self._dirty = True
 
     def _unblock_all(self):
         n = len(self.enforcer.list_blocked())
@@ -388,6 +382,7 @@ class FirewallAgentUI:
                 self.enforcer.unblock(ip)
                 self.db.log_action("unblock", ip, "manual_all")
                 cloud_hooks.remove_block(ip)
+                self.block_sources.pop(ip, None)
             self._dirty = True
 
     def _clear_history(self):
@@ -409,30 +404,12 @@ class FirewallAgentUI:
     def _refresh_loop(self):
         if self._dirty:
             self._refresh_alerts()
-            self._refresh_pending()
             self._refresh_blocked_structure()
-        
-        self._update_blocked_timers()
         
         self._refresh_log()
         self._refresh_ai_status()
-        self._apply_peer_blocks()
         self._dirty = False
         self.root.after(GUI_REFRESH_INTERVAL, self._refresh_loop)
-
-    def _apply_peer_blocks(self):
-        try:
-            peer_entries = cloud_hooks.fetch_blocklist()
-            for entry in peer_entries:
-                ip = entry["ip"]
-                attack_type = entry.get("attack_type", "peer_shared")
-                if not self.enforcer.is_blocked(ip):
-                    newly = self.enforcer.block(ip, attack_type=attack_type, auto=True)
-                    if newly:
-                        self.db.log_action("block", ip, reason="peer_shared", attack_type=attack_type)
-                        self._mark_dirty()
-        except Exception:
-            pass
 
     def _refresh_alerts(self):
         sel_id = None
@@ -453,24 +430,6 @@ class FirewallAgentUI:
             if r["id"] == sel_id:
                 self.alerts_tree.selection_set(iid)
 
-    def _refresh_pending(self):
-        sel_id = None
-        sel = self.pending_tree.selection()
-        if sel:
-            tags = self.pending_tree.item(sel[0])["tags"]
-            if tags: sel_id = tags[0]
-
-        for row in self.pending_tree.get_children():
-            self.pending_tree.delete(row)
-
-        for r in self.store.list_pending():
-            ev = r["event"]
-            iid = self.pending_tree.insert("", "end", values=(
-                r["ts"], ev.get("src_ip", "?"), ev.get("attack_type", "?"), f"{ev.get('confidence', 0):.2f}",
-            ), tags=(r["id"],))
-            if r["id"] == sel_id:
-                self.pending_tree.selection_set(iid)
-
     def _refresh_blocked_structure(self):
         sel_ip = None
         sel = self.blocked_tree.selection()
@@ -481,34 +440,16 @@ class FirewallAgentUI:
         for row in self.blocked_tree.get_children():
             self.blocked_tree.delete(row)
 
-        now = time.time()
         for ip, info_ in self.enforcer.list_blocked():
-            elapsed = int(now - info_["at"])
-            remaining = max(0, AUTO_UNBLOCK_SECONDS - elapsed)
-            tag = "auto" if info_["auto"] else "manual"
+            
+            # Fetch the actual node that blocked the IP, default to Cloud Network if unknown
+            node_id = self.block_sources.get(ip, "Cloud Network")
+            
             iid = self.blocked_tree.insert("", "end", values=(
-                ip, info_["attack"], tag, f"{remaining}s",
+                ip, info_["attack"], node_id,
             ), tags=(ip,))
             if ip == sel_ip:
                 self.blocked_tree.selection_set(iid)
-
-    def _update_blocked_timers(self):
-        now = time.time()
-        blocked_ips = dict(self.enforcer.list_blocked())
-        
-        for child in self.blocked_tree.get_children():
-            tags = self.blocked_tree.item(child)["tags"]
-            if not tags: continue
-            ip = tags[0]
-            
-            if ip in blocked_ips:
-                info_ = blocked_ips[ip]
-                elapsed = int(now - info_["at"])
-                remaining = max(0, AUTO_UNBLOCK_SECONDS - elapsed)
-                
-                current_values = list(self.blocked_tree.item(child)["values"])
-                current_values[3] = f"{remaining}s"
-                self.blocked_tree.item(child, values=current_values)
 
     def _refresh_log(self):
         lines = self.runner.get_log_lines()

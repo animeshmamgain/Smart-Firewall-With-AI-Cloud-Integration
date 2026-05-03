@@ -86,16 +86,9 @@ class Enforcer:
     # ── Background ─────────────────────────────────────────────────
 
     def _auto_unblock_loop(self):
+        # Blocks are permanent — auto-unblock is disabled.
         while self._running:
-            time.sleep(5)   # check every 5s; cheap
-            now = time.time()
-            expired = []
-            with self._lock:
-                for ip, info in self._blocked.items():
-                    if now - info["at"] > AUTO_UNBLOCK_SECONDS:
-                        expired.append(ip)
-            for ip in expired:
-                self.unblock(ip)
+            time.sleep(60)
 
     # ── iptables wrappers ──────────────────────────────────────────
 

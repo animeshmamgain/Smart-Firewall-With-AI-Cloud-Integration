@@ -16,12 +16,15 @@ EVENTS_FILE = SHARED_DIR / "events.jsonl"
 DB_FILE     = LOGS_DIR / "agent.db"
 
 DEFAULT_MODE         = "auto"
-AUTO_UNBLOCK_SECONDS = 300
+AUTO_UNBLOCK_SECONDS = 999_999_999   # Permanent — blocks never expire automatically
 MAX_RECENT_ALERTS    = 100
 EVENT_POLL_INTERVAL  = 0.5
 GUI_REFRESH_INTERVAL = 1000
 
 INTERFACE = os.getenv("SFW_INTERFACE", "enp0s8")
+
+# Read the Node ID from your .env file, default to "Unknown Node" if missing
+NODE_ID = os.getenv("SFW_CLIENT_ID", "Unknown Node")
 
 def get_ip_address(ifname):
     try:
